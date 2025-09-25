@@ -4,10 +4,13 @@ import Header from "./components/Header";
 import Analytics from "./pages/Analytics";
 import Datasets from "./pages/Datasets";
 import Alerts from "./pages/Alerts";
+import { Toaster } from "sonner";
 
 function App() {
     return (
-        <div className="min-h-screen bg-neutral-950 text-neutral-100">
+        <div className="min-h-screen">
+            <Toaster richColors theme="dark" position="bottom-right" />
+
             <Header />
             <main className="mx-auto max-w-6xl px-4 py-8">
                 <Routes>
@@ -18,7 +21,8 @@ function App() {
                     <Route path="/analytics" element={<Analytics />} />
                     <Route path="/datasets" element={<Datasets />} />
                     <Route path="/alerts" element={<Alerts />} />
-                    {/* 404 (optional) */}
+
+                    {/* 404 */}
                     <Route
                         path="*"
                         element={
