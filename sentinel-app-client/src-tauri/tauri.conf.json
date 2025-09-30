@@ -12,9 +12,12 @@
   "app": {
     "windows": [
       {
-        "title": "sentinel-app-client",
+        "title": "Sentinel Hive",
         "width": 800,
-        "height": 600
+        "height": 600,
+
+        "minWidth": 768,
+        "minHeight": 600
       }
     ],
     "security": {
