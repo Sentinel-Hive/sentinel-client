@@ -19,12 +19,14 @@ export default function Alerts() {
                     Alerts
                 </h2>
                 <div className="text-sm text-white/60">
-                    Example preview — wire up to your data next.
+                    Example preview
                 </div>
             </header>
 
             <div className="grid gap-4">
-                <AlertCard {...example} />
+            <AlertCard {...example} />
+            <AlertCard {...example} />
+            <AlertCard {...example} />
             </div>
         </div>
     );
