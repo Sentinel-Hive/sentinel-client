@@ -169,7 +169,7 @@ export default function Header() {
                         </DropdownMenu.Portal>
                     </DropdownMenu.Root>
 
-                    {/* Profile dropdown (unchanged except for import choices) */}
+                    {/* Profile dropdown */}
                     <DropdownMenu.Root>
                         <DropdownMenu.Trigger asChild>
                             <button
