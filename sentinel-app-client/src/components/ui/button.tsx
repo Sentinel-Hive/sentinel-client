@@ -9,8 +9,6 @@ type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   ({ variant = "default", size, className = "", children, ...props }, ref) => {
     const base = "inline-flex items-center justify-center rounded-md px-3 py-1 transition-colors";
-    // use a lighter background for ghost/outline so filter boxes are readable;
-    // keep the default variant (selected) using the primary color unchanged
     const variants =
       variant === "outline"
         ? "border bg-[hsl(var(--muted))] text-[hsl(var(--fg))]"

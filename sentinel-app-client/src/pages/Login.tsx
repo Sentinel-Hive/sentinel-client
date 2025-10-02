@@ -29,7 +29,8 @@ function Login() {
   };
 
   return (
-    <div className="relative flex min-h-screen bg-neutral-900">
+  <div className="relative flex min-h-screen bg-[conic-gradient(from_225deg,_#1a1a1a_0_50%,_#e7a934_50%)]">
+
       {/* Left Side */}
       <div className="flex items-center justify-center w-1/2">
         <img
@@ -98,14 +99,14 @@ function Login() {
               {/* Login Button */}
               <Button
                 type="submit"
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                className="w-full bg-[#e7a934] hover:bg-yellow-700 text-black font-bold"
               >
                 Login
               </Button>
             </form>
           </CardContent>
           <CardFooter className="text-center text-xs text-gray-400">
-            © {new Date().getFullYear()} Sentinel-Client
+            © {new Date().getFullYear()} Sentinel Hive
           </CardFooter>
         </Card>
       </div>
