@@ -15,18 +15,14 @@ export default function Alerts() {
     return (
         <div className="mx-auto max-w-5xl p-6 space-y-6">
             <header className="flex items-end justify-between">
-                <h2 className="text-2xl font-semibold tracking-tight">
-                    Alerts
-                </h2>
-                <div className="text-sm text-white/60">
-                    Example preview
-                </div>
+                <h2 className="text-2xl font-semibold tracking-tight">Alerts</h2>
+                <div className="text-sm text-white/60">Example preview</div>
             </header>
 
             <div className="grid gap-4">
-            <AlertCard {...example} />
-            <AlertCard {...example} />
-            <AlertCard {...example} />
+                <AlertCard {...example} />
+                <AlertCard {...example} />
+                <AlertCard {...example} />
             </div>
         </div>
     );

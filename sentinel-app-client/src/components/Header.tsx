@@ -14,8 +14,7 @@ import { toast } from "sonner";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import AlertNotification, { Severity } from "./AlertNotification";
 
-const navLinkClass =
-    "px-3 py-2 rounded-xl text-sm font-medium transition hover:bg-neutral-800/60";
+const navLinkClass = "px-3 py-2 rounded-xl text-sm font-medium transition hover:bg-neutral-800/60";
 const activeClass = "bg-neutral-800";
 
 type Notification = {
@@ -38,8 +37,7 @@ export default function Header() {
             id: "n2",
             severity: "critical",
             timestamp: new Date(Date.now() - 65 * 60 * 1000).toISOString(), // 65m ago
-            description:
-                "Error spike: 5xx > 4% in us-east-1. Auto-mitigation paused.",
+            description: "Error spike: 5xx > 4% in us-east-1. Auto-mitigation paused.",
         },
         {
             id: "n3",
@@ -111,9 +109,7 @@ export default function Header() {
                                 className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800/60 focus:outline-none focus:ring-2 focus:ring-neutral-700"
                             >
                                 <Bell className="h-4 w-4" />
-                                <span className="hidden sm:inline">
-                                    Notifications
-                                </span>
+                                <span className="hidden sm:inline">Notifications</span>
                                 {notifications.length > 0 && (
                                     <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[hsl(var(--primary))] px-1 text-[10px] font-bold text-[hsl(var(--primary-foreground))]">
                                         {notifications.length}
@@ -137,9 +133,7 @@ export default function Header() {
                                         {notifications.map((n) => (
                                             <DropdownMenu.Item
                                                 key={n.id}
-                                                onSelect={(e) =>
-                                                    e.preventDefault()
-                                                }
+                                                onSelect={(e) => e.preventDefault()}
                                                 className="rounded-lg focus:bg-transparent focus:outline-none"
                                                 asChild
                                             >
@@ -148,9 +142,7 @@ export default function Header() {
                                                         id={n.id}
                                                         severity={n.severity}
                                                         timestamp={n.timestamp}
-                                                        description={
-                                                            n.description
-                                                        }
+                                                        description={n.description}
                                                     />
                                                 </div>
                                             </DropdownMenu.Item>
@@ -177,9 +169,7 @@ export default function Header() {
                                 className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800/60 focus:outline-none focus:ring-2 focus:ring-neutral-700"
                             >
                                 <CircleUserRound className="h-5 w-5" />
-                                <span className="hidden sm:inline">
-                                    Profile
-                                </span>
+                                <span className="hidden sm:inline">Profile</span>
                             </button>
                         </DropdownMenu.Trigger>
                         <DropdownMenu.Portal>
@@ -197,8 +187,7 @@ export default function Header() {
                                             }}
                                             className="flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800"
                                         >
-                                            <UserIcon className="h-4 w-4" />{" "}
-                                            Account
+                                            <UserIcon className="h-4 w-4" /> Account
                                         </DropdownMenu.Item>
                                         <DropdownMenu.Item
                                             onSelect={(e) => {
@@ -208,9 +197,7 @@ export default function Header() {
                                             className="flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800"
                                         >
                                             <LogOut className="h-4 w-4 text-red-500" />
-                                            <span className="text-red-500">
-                                                Log Out
-                                            </span>
+                                            <span className="text-red-500">Log Out</span>
                                         </DropdownMenu.Item>
                                         <DropdownMenu.Separator className="my-1 h-px bg-neutral-800" />
                                     </>
@@ -224,9 +211,7 @@ export default function Header() {
                                             className="flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800"
                                         >
                                             <LogIn className="h-4 w-4 text-green-500" />
-                                            <span className="text-green-500">
-                                                Log In
-                                            </span>
+                                            <span className="text-green-500">Log In</span>
                                         </DropdownMenu.Item>
                                         <DropdownMenu.Separator className="my-1 h-px bg-neutral-800" />
                                     </>
@@ -238,8 +223,7 @@ export default function Header() {
                                     }}
                                     className="md:hidden flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800 text-yellow-400"
                                 >
-                                    <Crown className="h-4 w-4 text-yellow-400" />{" "}
-                                    Become Host
+                                    <Crown className="h-4 w-4 text-yellow-400" /> Become Host
                                 </DropdownMenu.Item>
                                 <DropdownMenu.Item
                                     onSelect={(e) => {

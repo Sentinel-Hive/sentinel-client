@@ -9,11 +9,7 @@ type Props = {
     description?: string;
 };
 
-export default function AlertNotification({
-    severity,
-    timestamp,
-    description,
-}: Props) {
+export default function AlertNotification({ severity, timestamp, description }: Props) {
     const since = useMemo(() => formatSince(timestamp), [timestamp]);
 
     return (
@@ -29,9 +25,7 @@ export default function AlertNotification({
             </div>
 
             {description && (
-                <p className="mt-1 line-clamp-2 text-sm text-white/85">
-                    {description}
-                </p>
+                <p className="mt-1 line-clamp-2 text-sm text-white/85">{description}</p>
             )}
         </div>
     );
@@ -43,10 +37,10 @@ function SeverityPill({ level }: { level: Severity }) {
         level === "critical"
             ? "100%"
             : level === "high"
-            ? "80%"
-            : level === "medium"
-            ? "60%"
-            : "40%";
+              ? "80%"
+              : level === "medium"
+                ? "60%"
+                : "40%";
 
     return (
         <span

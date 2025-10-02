@@ -28,8 +28,7 @@ export default function AlertCard({
     const [ack, setAck] = useState(acknowledgedProp);
 
     const when = useMemo(() => {
-        const d =
-            typeof timestamp === "string" ? new Date(timestamp) : timestamp;
+        const d = typeof timestamp === "string" ? new Date(timestamp) : timestamp;
         return d.toLocaleString();
     }, [timestamp]);
 
@@ -47,18 +46,12 @@ export default function AlertCard({
                 <div className="min-w-0">
                     <div className="flex items-center gap-2">
                         <SeverityPill level={severity} />
-                        <h3 className="truncate text-lg font-semibold">
-                            {title}
-                        </h3>
+                        <h3 className="truncate text-lg font-semibold">{title}</h3>
                     </div>
                     <p className="mt-1 text-sm text-white/70">
-                        <span className="font-medium text-white/80">
-                            {source}
-                        </span>
+                        <span className="font-medium text-white/80">{source}</span>
                         <span className="mx-2 opacity-40">•</span>
-                        <time dateTime={new Date(timestamp).toISOString()}>
-                            {when}
-                        </time>
+                        <time dateTime={new Date(timestamp).toISOString()}>{when}</time>
                     </p>
                 </div>
 
@@ -78,9 +71,7 @@ export default function AlertCard({
             </header>
 
             {description && (
-                <p className="mt-3 text-sm leading-relaxed text-white/85">
-                    {description}
-                </p>
+                <p className="mt-3 text-sm leading-relaxed text-white/85">{description}</p>
             )}
 
             {tags.length > 0 && (
@@ -116,10 +107,10 @@ function SeverityPill({ level }: { level: Severity }) {
         level === "critical"
             ? "100%"
             : level === "high"
-            ? "80%"
-            : level === "medium"
-            ? "60%"
-            : "40%";
+              ? "80%"
+              : level === "medium"
+                ? "60%"
+                : "40%";
 
     return (
         <span
