@@ -16,13 +16,19 @@ function App() {
         <div className="min-h-screen">
             <Toaster richColors theme="dark" position="bottom-right" />
 
-            {showHeader && <Header />}
-
-            {/* If login page*/}
-            {isLoginPage ? (
+            <Header />
+            <main className="mx-auto max-w-6xl px-4 py-8">
                 <Routes>
-                    <Route path="/" element={<Login />} />
-                    <Route path="/login" element={<Login />} />
+                    <Route path="/" element={<Navigate to="/analytics" replace />} />
+                    <Route path="/analytics" element={<Analytics />} />
+                    <Route path="/datasets" element={<Datasets />} />
+                    <Route path="/alerts" element={<Alerts />} />
+
+                    {/* 404 */}
+                    <Route
+                        path="*"
+                        element={<div className="text-sm text-neutral-400">Page not found.</div>}
+                    />
                 </Routes>
             ) : (
                 <main className="mx-auto max-w-6xl px-4 py-8">
