@@ -16,13 +16,17 @@ function App() {
         <div className="min-h-screen">
             <Toaster richColors theme="dark" position="bottom-right" />
 
-            <Header />
+            {showHeader && <Header />}
+
             <main className="mx-auto max-w-6xl px-4 py-8">
                 <Routes>
+                    {/* Redirect root → analytics */}
                     <Route path="/" element={<Navigate to="/analytics" replace />} />
+
                     <Route path="/analytics" element={<Analytics />} />
                     <Route path="/datasets" element={<Datasets />} />
                     <Route path="/alerts" element={<Alerts />} />
+                    <Route path="/login" element={<Login />} />
 
                     {/* 404 */}
                     <Route
@@ -30,23 +34,7 @@ function App() {
                         element={<div className="text-sm text-neutral-400">Page not found.</div>}
                     />
                 </Routes>
-            ) : (
-                <main className="mx-auto max-w-6xl px-4 py-8">
-                    <Routes>
-                        <Route path="/analytics" element={<Analytics />} />
-                        <Route path="/datasets" element={<Datasets />} />
-                        <Route path="/alerts" element={<Alerts />} />
-                        <Route
-                            path="*"
-                            element={
-                                <div className="text-sm text-neutral-400">
-                                    Page not found.
-                                </div>
-                            }
-                        />
-                    </Routes>
-                </main>
-            )}
+            </main>
         </div>
     );
 }
