@@ -1,4 +1,527 @@
 // src/pages/Analytics.tsx
+import { useState, useEffect, useMemo } from "react";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "../components/ui/select";
+import { Checkbox } from "../components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog";
+import { Progress } from "../components/ui/progress";
+
+function parseNDJSON(
+  rawText: string,
+  onBatch: (logs: any[]) => void,
+  onProgress: (percent: number) => void,
+  batchSize = 1000
+) {
+  const lines = rawText.split(/\r?\n/).filter(l => l.trim().length > 0);
+  const total = lines.length;
+  let index = 0;
+
+  function processBatch() {
+    const batch: any[] = [];
+    for (let i = 0; i < batchSize && index < total; i++, index++) {
+      try {
+        const obj = JSON.parse(lines[index]);
+        batch.push(obj);
+      } catch {
+        // skip bad lines
+      }
+    }
+
+    if (batch.length) {
+      onBatch(batch);
+    }
+
+    onProgress(Math.min(100, Math.round((index / total) * 100)));
+
+    if (index < total) {
+      setTimeout(processBatch, 0); // yield to UI so it doesn’t freeze
+    }
+  }
+
+  processBatch();
+}
+
+
+type Log = {
+  id: number;
+  message: string;
+  type: string; // e.g., "error", "info"
+  src_ip?: string;
+  dest_ip?: string;
+  user?: string;
+  event_type?: string;
+  severity?: string;
+  app?: string;
+  dest_port?: string;
+  src_port?: string;
+  status?: string;
+  host?: string;
+  timestamp?: string;
+};
+
 export default function Analytics() {
-    return <h2 className="text-2xl font-semibold">Analytics</h2>;
+  const [logs, setLogs] = useState<Log[]>([]); // starts EMPTY
+  const [query, setQuery] = useState("");
+  const [filters, setFilters] = useState<string[]>([]); // type filters
+  const [showFilters, setShowFilters] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [fieldFilters, setFieldFilters] = useState<Record<string, string>>({
+    src_ip: "",
+    dest_ip: "",
+    user: "",
+    event_type: "",
+    severity: "",
+    app: "",
+    dest_port: "",
+    src_port: "",
+    status: "",
+    host: "",
+  });
+
+  const [dateFrom, setDateFrom] = useState<string | null>(null);
+  const [dateTo, setDateTo] = useState<string | null>(null);
+  const [sortOption, setSortOption] = useState("Newest");
+  const [selectedLog, setSelectedLog] = useState<Log | null>(null);
+
+  const clearAll = () => {
+    setQuery("");
+    setFilters([]);
+    setFieldFilters({
+      src_ip: "",
+      dest_ip: "",
+      user: "",
+      event_type: "",
+      severity: "",
+      app: "",
+      dest_port: "",
+      src_port: "",
+      status: "",
+      host: "",
+    });
+    setDateFrom(null);
+    setDateTo(null);
+    setShowFilters(false);
+  };
+
+const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+
+  setUploading(true);
+  setUploadProgress(0);
+
+  const reader = new FileReader();
+
+  // fake progress (optional)
+  const interval = setInterval(() => {
+    setUploadProgress((prev) => {
+      if (prev >= 90) {
+        clearInterval(interval);
+        return prev;
+      }
+      return prev + 10;
+    });
+  }, 150);
+
+  reader.onload = (event) => {
+    const rawText = event.target?.result as string;
+    if (!rawText) return;
+
+    // clear old logs
+    setLogs([]);
+    setUploadProgress(0);
+
+    parseNDJSON(
+      rawText,
+      (batch) => {
+        // normalize batch to your Log type
+        const normalized: Log[] = batch.map((entry, idx) => {
+          const r = entry.result || {};
+          let innerRaw: any = {};
+          try {
+            if (r._raw) {
+              innerRaw = JSON.parse(r._raw);
+            }
+          } catch {
+            innerRaw = {};
+          }
+
+          return {
+            id: innerRaw.id ?? r.id ?? idx,
+            message:
+              innerRaw.appDisplayName ??
+              r.appDisplayName ??
+              innerRaw.resourceDisplayName ??
+              r.resourceDisplayName ??
+              "(no message)",
+            type: r.conditionalAccessStatus ?? "info",
+            timestamp: innerRaw.createdDateTime ?? r.createdDateTime ?? r._time,
+            src_ip: innerRaw.ipAddress ?? r.ipAddress ?? r.src_ip,
+            dest_ip: r.dest ?? "",
+            user:
+              innerRaw.userPrincipalName ??
+              r.user ??
+              r.userPrincipalName,
+            event_type: Array.isArray(r.eventtype)
+              ? r.eventtype.join(", ")
+              : r.eventtype,
+            severity: r.riskLevelDuringSignIn ?? "",
+            app: innerRaw.appDisplayName ?? r.appDisplayName,
+            dest_port: "",
+            src_port: "",
+            status:
+              r["status.failureReason"] ??
+              innerRaw.status?.failureReason ??
+              "",
+            host: r.host ?? "",
+          };
+        });
+
+        // append incrementally
+        setLogs((prev) => [...prev, ...normalized]);
+      },
+      (percent) => {
+        setUploadProgress(percent);
+        if (percent === 100) {
+          setTimeout(() => setUploading(false), 500);
+        }
+      }
+    );
+  };
+
+  reader.readAsText(file);
+};
+
+  
+  const toggleFilter = (type: string) => {
+    setFilters((prev) =>
+      prev.includes(type) ? prev.filter((f) => f !== type) : [...prev, type]
+    );
+  };
+
+  const setFieldFilter = (field: string, value: string) => {
+    setFieldFilters((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const filterFields = [
+    { key: "src_ip", label: "Source IP" },
+    { key: "dest_ip", label: "Destination IP" },
+    { key: "user", label: "User" },
+    { key: "event_type", label: "Event Type" },
+    { key: "severity", label: "Severity" },
+    { key: "app", label: "Application" },
+    { key: "dest_port", label: "Destination Port" },
+    { key: "src_port", label: "Source Port" },
+    { key: "status", label: "Status" },
+    { key: "host", label: "Host" },
+  ];
+
+  const uniqueValues = (field: string) =>
+    Array.from(
+      new Set(logs.map((l) => String((l as any)[field] ?? "")).filter(Boolean))
+    );
+
+  const filteredLogs = useMemo(() => {
+    const list = logs
+      .filter((log) =>
+        query ? log.message.toLowerCase().includes(query.toLowerCase()) : true
+      )
+      .filter((log) => (filters.length > 0 ? filters.includes(log.type) : true))
+      .filter((log) => {
+        // date range filter
+        if (dateFrom || dateTo) {
+          const ts = log.timestamp ? new Date(log.timestamp).getTime() : null;
+          if (ts) {
+            if (dateFrom) {
+              const from = new Date(dateFrom).getTime();
+              if (ts < from) return false;
+            }
+            if (dateTo) {
+              const toDate = new Date(dateTo);
+              toDate.setHours(23, 59, 59, 999);
+              const to = toDate.getTime();
+              if (ts > to) return false;
+            }
+          }
+        }
+        // field filters
+        for (const [field, value] of Object.entries(fieldFilters)) {
+          if (value && value.trim() !== "") {
+            const logVal = String((log as any)[field] ?? "").toLowerCase();
+            if (!logVal.includes(value.toLowerCase())) return false;
+          }
+        }
+        return true;
+      });
+
+    const sorted = list.sort((a, b) => {
+      const ta = a.timestamp ? new Date(a.timestamp).getTime() : null;
+      const tb = b.timestamp ? new Date(b.timestamp).getTime() : null;
+      if (sortOption === "A-Z") return a.message.localeCompare(b.message);
+      if (sortOption === "Z-A") return b.message.localeCompare(a.message);
+      if (sortOption === "Oldest") {
+        if (ta != null && tb != null) return ta - tb;
+        return a.id - b.id;
+      }
+      // Newest
+      if (ta != null && tb != null) return tb - ta;
+      return b.id - a.id;
+    });
+
+    return sorted;
+  }, [logs, query, filters, fieldFilters, dateFrom, dateTo, sortOption]);
+
+  // close popup on Escape
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelectedLog(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  return (
+    <div className="flex">
+      <div className="flex-1 max-w-sm md:max-w-md lg:max-w-lg xl:max-w-xl 2xl:max-w-2xl ml-0 mr-4 my-4 p-4 bg-[hsl(var(--muted))] border border-[hsl(var(--border))] rounded-lg">
+        {/* Query Input */}
+        <Input
+          value={query}
+          onChange={(e: any) => setQuery(e.target.value)}
+          placeholder="Type SQL query..."
+          className="w-full mb-2"
+        />
+
+        {/* Filters */}
+        <div className="mb-2">
+          <div className="flex items-center justify-between">
+            <label className="block font-semibold">Filters</label>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowFilters((s) => !s)}
+            >
+              Filter
+            </Button>
+          </div>
+
+          {showFilters && (
+            <div className="mt-2 space-y-3 p-3 bg-[hsl(var(--bg))] border border-[hsl(var(--border))] rounded">
+              {filterFields.map((f) => (
+                <div key={f.key}>
+                  <div className="text-sm font-medium mb-1">{f.label}</div>
+                  <div className="flex flex-wrap gap-2">
+                    {uniqueValues(f.key).map((val) => {
+                      const selected = fieldFilters[f.key] === val;
+                      return (
+                        <Button
+                          key={val}
+                          size="sm"
+                          variant={selected ? "default" : "ghost"}
+                          onClick={() =>
+                            setFieldFilter(f.key, selected ? "" : val)
+                          }
+                        >
+                          {val}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+
+              <div>
+                <div className="text-sm font-medium mb-1">
+                  Date Range (Between)
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={dateFrom ?? ""}
+                    onChange={(e) => setDateFrom(e.target.value || null)}
+                    className="p-2 rounded bg-[hsl(var(--muted))] text-sm"
+                  />
+                  <span>and</span>
+                  <input
+                    type="date"
+                    value={dateTo ?? ""}
+                    onChange={(e) => setDateTo(e.target.value || null)}
+                    className="p-2 rounded bg-[hsl(var(--muted))] text-sm"
+                  />
+                </div>
+              </div>
+              <div className="pt-2">
+                <div className="text-sm font-medium mb-1">Type</div>
+                <div className="flex gap-3">
+                  {["info", "error", "warning"].map((type) => (
+                    <label
+                      key={type}
+                      className="inline-flex items-center gap-2 text-sm"
+                    >
+                      <Checkbox
+                        checked={filters.includes(type)}
+                        onCheckedChange={() => toggleFilter(type)}
+                      />
+                      {type}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setFieldFilters({
+                      src_ip: "",
+                      dest_ip: "",
+                      user: "",
+                      event_type: "",
+                      severity: "",
+                      app: "",
+                      dest_port: "",
+                      src_port: "",
+                      status: "",
+                      host: "",
+                    });
+                    setDateFrom(null);
+                    setDateTo(null);
+                  }}
+                >
+                  Clear
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Sort */}
+        <Select value={sortOption} onValueChange={(v) => setSortOption(v)}>
+          <SelectTrigger className="w-full mb-2">
+            <SelectValue placeholder="Sort" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="Newest">Newest</SelectItem>
+            <SelectItem value="Oldest">Oldest</SelectItem>
+            <SelectItem value="A-Z">A-Z</SelectItem>
+            <SelectItem value="Z-A">Z-A</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {/* View All Button */}
+        <Button className="w-full mt-2 mb-2" onClick={clearAll}>
+          View All
+        </Button>
+
+        {/* Logs List */}
+        <div className="space-y-2 max-h-96 overflow-y-auto">
+          {filteredLogs.length === 0 ? (
+            <div className="text-sm text-gray-500 italic text-center py-4">
+              No logs available. Upload data to see logs.
+            </div>
+          ) : (
+            filteredLogs.map((log) => {
+              const isSelected = selectedLog?.id === log.id;
+              return (
+                <div
+                  key={log.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedLog((prev) =>
+                      prev?.id === log.id ? null : log
+                    );
+                  }}
+                  className={`p-2 border border-[hsl(var(--border))] rounded cursor-pointer truncate ${
+                    isSelected
+                      ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
+                      : "bg-[hsl(var(--bg))] hover:bg-[hsl(var(--muted))]"
+                  }`}
+                  title={log.message}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.stopPropagation();
+                      setSelectedLog((prev) =>
+                        prev?.id === log.id ? null : log
+                      );
+                    }
+                  }}
+                  aria-pressed={isSelected}
+                >
+                  {log.message}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* Right side panel */}
+      <div className="flex-1 flex items-center justify-center">
+        {logs.length === 0 ? (
+          <div className="text-center w-full max-w-sm">
+            <p className="mb-4 text-gray-500 italic">
+              No logs available. Upload data to see logs.
+            </p>
+            {/* Upload JSON */}
+            <div className="mt-2">
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleFileUpload}
+                className="block w-full text-sm text-gray-500 
+                  file:mr-4 file:py-2 file:px-4
+                  file:rounded-lg file:border-0
+                  file:text-sm file:font-semibold
+                  file:bg-[hsl(var(--primary))] file:text-[hsl(var(--primary-foreground))]
+                  hover:file:bg-[hsl(var(--primary)/0.9)]"
+              />
+            </div>
+
+            {/* Progress Bar */}
+            {uploading && (
+              <div className="mt-4">
+                <Progress value={uploadProgress} className="w-full" />
+                <p className="text-sm text-gray-500 mt-2">
+                  Uploading... {uploadProgress}%
+                </p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="p-4">{/* summary/stats later */}</div>
+        )}
+      </div>
+
+      {/* Popup for log details */}
+      <Dialog
+        open={!!selectedLog}
+        onOpenChange={(open) => {
+          if (!open) setSelectedLog(null);
+        }}
+      >
+        <DialogContent className="w-96">
+          <DialogHeader>
+            <DialogTitle id="log-details-title">Log Details</DialogTitle>
+          </DialogHeader>
+          <div className="mt-2">
+            <p className="mb-4">{selectedLog?.message}</p>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
 }
