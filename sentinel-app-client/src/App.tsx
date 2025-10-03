@@ -21,7 +21,7 @@ function App() {
             <main className="mx-auto max-w-6xl px-4 py-8">
                 <Routes>
                     {/* Redirect root → analytics */}
-                    <Route path="/" element={<Navigate to="/analytics" replace />} />
+                    <Route path="/" element={<Navigate to="/login" replace />} />
 
                     <Route path="/analytics" element={<Analytics />} />
                     <Route path="/datasets" element={<Datasets />} />
