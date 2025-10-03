@@ -23,14 +23,14 @@ function Login() {
     };
 
     return (
-        <div className="relative flex min-h-screen bg-[conic-gradient(from_225deg,_#1a1a1a_0_50%,_#e7a934_50%)]">
+        <div className="fixed inset-0 flex overflow-hidden bg-[conic-gradient(from_225deg,_#1a1a1a_0_50%,_#e7a934_50%)]">
             {/* Left Side */}
-            <div className="flex items-center justify-center w-1/2">
-                <img src="/SH_Logo_HD.png" alt="Sentinel Logo" className="max-w-xs w-2/3 h-auto" />
+            <div className="flex items-center justify-center flex-1 h-full">
+                 <img src="/SH_Logo_HD.png" alt="Sentinel Logo" className="max-w-xs w-2/3 h-auto" />
             </div>
 
             {/* Right Side */}
-            <div className="flex items-center justify-center w-1/2">
+            <div className="flex items-center justify-center flex-1 h-full">
                 <Card className="w-full max-w-md bg-neutral-800 border-neutral-700">
                     <CardHeader>
                         <CardTitle className="text-center text-white">Login</CardTitle>
