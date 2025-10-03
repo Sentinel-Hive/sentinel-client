@@ -14,10 +14,7 @@ function App() {
             <Header />
             <main className="mx-auto max-w-6xl px-4 py-8">
                 <Routes>
-                    <Route
-                        path="/"
-                        element={<Navigate to="/analytics" replace />}
-                    />
+                    <Route path="/" element={<Navigate to="/analytics" replace />} />
                     <Route path="/analytics" element={<Analytics />} />
                     <Route path="/datasets" element={<Datasets />} />
                     <Route path="/alerts" element={<Alerts />} />
@@ -25,11 +22,7 @@ function App() {
                     {/* 404 */}
                     <Route
                         path="*"
-                        element={
-                            <div className="text-sm text-neutral-400">
-                                Page not found.
-                            </div>
-                        }
+                        element={<div className="text-sm text-neutral-400">Page not found.</div>}
                     />
                 </Routes>
             </main>
