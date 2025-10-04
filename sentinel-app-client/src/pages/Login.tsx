@@ -7,18 +7,37 @@ import { Button } from "../components/ui/button";
 import { Label } from "../components/ui/label";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "../components/ui/card";
 
-function Login() {
+export default function Login() {
     const navigate = useNavigate();
 
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
     const [ip, setIp] = useState("");
+    const [error, setError] = useState("");
+
+    const validateIpOrDomain = (value: string) => {
+        // IPv4 regex
+        const ipRegex =
+            /^(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}$/;
+
+        // Domain regex (simplified: allows subdomains + TLDs)
+        const domainRegex =
+            /^(?!-)[A-Za-z0-9-]{1,63}(?<!-)\.(?:[A-Za-z]{2,63})(\.[A-Za-z]{2,63})*$/;
+
+        return ipRegex.test(value) || domainRegex.test(value);
+    };
 
     const handleLogin = (e: React.FormEvent) => {
         e.preventDefault();
-        console.log("Username:", username);
-        console.log("Password:", password);
-        console.log("IP Address:", ip);
+
+        if (!validateIpOrDomain(ip)) {
+            setError("Please enter a valid IP address or domain.");
+            return;
+        }
+
+        setError(""); // clear error if valid
+
+        // Login logic goes here (API call, auth, etc.)
         navigate("/analytics");
     };
 
@@ -26,17 +45,24 @@ function Login() {
         <div className="fixed inset-0 flex overflow-hidden bg-[conic-gradient(from_225deg,_#1a1a1a_0_50%,_#e7a934_50%)]">
             {/* Left Side */}
             <div className="flex items-center justify-center flex-1 h-full">
-                 <img src="/SH_Logo_HD.png" alt="Sentinel Logo" className="max-w-xs w-2/3 h-auto" />
+                <img src="/SH_Logo_HD.png" alt="Sentinel Logo" className="max-w-xs w-2/3 h-auto" />
             </div>
 
             {/* Right Side */}
-            <div className="flex items-center justify-center flex-1 h-full">
+            <div className="flex items-center justify-center flex-1 h-full p-4 sm:p-6">
                 <Card className="w-full max-w-md bg-neutral-800 border-neutral-700">
                     <CardHeader>
                         <CardTitle className="text-center text-white">Login</CardTitle>
                     </CardHeader>
                     <CardContent>
                         <form onSubmit={handleLogin} className="space-y-4">
+                            {/* Error Message */}
+                            {error && (
+                                <div className="p-2 mb-2 text-sm text-red-500 bg-red-100 rounded">
+                                    {error}
+                                </div>
+                            )}
+
                             {/* Username */}
                             <div className="space-y-2">
                                 <Label htmlFor="username" className="text-gray-300">
@@ -69,17 +95,17 @@ function Login() {
                                 />
                             </div>
 
-                            {/* IP Address */}
+                            {/* IP Address / Domain */}
                             <div className="space-y-2">
                                 <Label htmlFor="ip" className="text-gray-300">
-                                    IP Address
+                                    IP Address / Domain
                                 </Label>
                                 <Input
                                     id="ip"
                                     type="text"
                                     value={ip}
                                     onChange={(e) => setIp(e.target.value)}
-                                    placeholder="Enter IP address"
+                                    placeholder="Enter IP or domain"
                                     required
                                     className="bg-neutral-700 text-white border-neutral-600"
                                 />
@@ -102,5 +128,3 @@ function Login() {
         </div>
     );
 }
-
-export default Login;
