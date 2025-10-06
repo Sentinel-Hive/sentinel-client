@@ -88,6 +88,19 @@ type RawLog = {
     [key: string]: unknown; // Allow additional properties
 };
 
+const filterFields = [
+    { key: "src_ip", label: "Source IP" },
+    { key: "dest_ip", label: "Destination IP" },
+    { key: "user", label: "User" },
+    { key: "event_type", label: "Event Type" },
+    { key: "severity", label: "Severity" },
+    { key: "app", label: "Application" },
+    { key: "dest_port", label: "Destination Port" },
+    { key: "src_port", label: "Source Port" },
+    { key: "status", label: "Status" },
+    { key: "host", label: "Host" },
+];
+
 export default function Analytics() {
     const [logs, setLogs] = useState<Log[]>([]); // all logs
     const [displayedLogs, setDisplayedLogs] = useState<Log[]>([]); // logs currently displayed
@@ -113,6 +126,12 @@ export default function Analytics() {
     const [sortOption, setSortOption] = useState("Newest");
     const [selectedLog, setSelectedLog] = useState<Log | null>(null);
     const [logsToShow, setLogsToShow] = useState(500); // limit for displayed logs
+    const ITEMS_PER_LOAD = 20; // Number of items to load per filter
+    const [loadedFilterOptions, setLoadedFilterOptions] = useState<Record<string, number>>(
+        Object.fromEntries(
+            filterFields.map((f) => [f.key, ITEMS_PER_LOAD]) // Initialize with 20 options per filter
+        )
+    );
 
     const clearAll = () => {
         setQuery("");
@@ -244,18 +263,12 @@ export default function Analytics() {
         setFieldFilters((prev: Record<string, string>) => ({ ...prev, [field]: value }));
     };
 
-    const filterFields = [
-        { key: "src_ip", label: "Source IP" },
-        { key: "dest_ip", label: "Destination IP" },
-        { key: "user", label: "User" },
-        { key: "event_type", label: "Event Type" },
-        { key: "severity", label: "Severity" },
-        { key: "app", label: "Application" },
-        { key: "dest_port", label: "Destination Port" },
-        { key: "src_port", label: "Source Port" },
-        { key: "status", label: "Status" },
-        { key: "host", label: "Host" },
-    ];
+    const loadMoreFilterOptions = (field: string) => {
+        setLoadedFilterOptions((prev) => ({
+            ...prev,
+            [field]: prev[field] + ITEMS_PER_LOAD, // Increment the number of options to display
+        }));
+    };
 
     const uniqueValues = (field: string) =>
         Array.from(
@@ -264,11 +277,30 @@ export default function Analytics() {
             )
         );
 
+    const parseSQLQuery = (query: string): Record<string, string> => {
+        const filters: Record<string, string> = {};
+        const regex = /(\w+)\s*=\s*['"]([^'"]+)['"]/g; // Match key="value" or key='value'
+        let match;
+        while ((match = regex.exec(query)) !== null) {
+            const [_, key, value] = match;
+            filters[key] = value;
+        }
+        return filters;
+    };
+
     const filteredLogs = useMemo(() => {
+        const sqlFilters = parseSQLQuery(query); // Parse SQL-like query into filters
         const list = logs
-            .filter((log) =>
-                query ? log.message.toLowerCase().includes(query.toLowerCase()) : true
-            )
+            .filter((log) => {
+                // Apply SQL-like filters
+                for (const [field, value] of Object.entries(sqlFilters)) {
+                    const logValue = String(
+                        (log as Record<string, unknown>)[field] ?? ""
+                    ).toLowerCase();
+                    if (!logValue.includes(value.toLowerCase())) return false;
+                }
+                return true;
+            })
             .filter((log) => (filters.length > 0 ? filters.includes(log.type) : true))
             .filter((log) => {
                 // date range filter
@@ -329,11 +361,11 @@ export default function Analytics() {
     return (
         <div className="flex">
             <div className="flex-1 max-w-sm md:max-w-md lg:max-w-lg xl:max-w-xl 2xl:max-w-2xl ml-0 mr-4 my-4 p-4 bg-[hsl(var(--muted))] border border-[hsl(var(--border))] rounded-lg">
-                {/* Query Input */}
+                {/* Query Input, Here is a test input: src_ip='192.168.1.1' AND user='admin' */}
                 <Input
                     value={query}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
-                    placeholder="Type SQL query..."
+                    placeholder="Enter SQL-like query (e.g., src_ip='192.168.1.1' AND user='admin')"
                     className="w-full mb-2"
                 />
 
@@ -356,22 +388,37 @@ export default function Analytics() {
                                 <div key={f.key}>
                                     <div className="text-sm font-medium mb-1">{f.label}</div>
                                     <div className="flex flex-wrap gap-2">
-                                        {uniqueValues(f.key).map((val) => {
-                                            const selected = fieldFilters[f.key] === val;
-                                            return (
-                                                <Button
-                                                    key={val}
-                                                    size="sm"
-                                                    variant={selected ? "default" : "ghost"}
-                                                    onClick={() =>
-                                                        setFieldFilter(f.key, selected ? "" : val)
-                                                    }
-                                                >
-                                                    {val}
-                                                </Button>
-                                            );
-                                        })}
+                                        {uniqueValues(f.key)
+                                            .slice(0, loadedFilterOptions[f.key]) // Limit displayed options
+                                            .map((val) => {
+                                                const selected = fieldFilters[f.key] === val;
+                                                return (
+                                                    <Button
+                                                        key={val}
+                                                        size="sm"
+                                                        variant={selected ? "default" : "ghost"}
+                                                        onClick={() =>
+                                                            setFieldFilter(
+                                                                f.key,
+                                                                selected ? "" : val
+                                                            )
+                                                        }
+                                                    >
+                                                        {val}
+                                                    </Button>
+                                                );
+                                            })}
                                     </div>
+                                    {uniqueValues(f.key).length > loadedFilterOptions[f.key] && (
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="mt-2"
+                                            onClick={() => loadMoreFilterOptions(f.key)}
+                                        >
+                                            Load More
+                                        </Button>
+                                    )}
                                 </div>
                             ))}
 
@@ -459,9 +506,15 @@ export default function Analytics() {
                 {/* Logs List */}
                 <div className="space-y-2 max-h-[30vh] overflow-y-auto">
                     {displayedLogs.length === 0 ? (
-                        <div className="text-sm text-gray-500 italic text-center py-4">
-                            No logs available. Upload data to see logs.
-                        </div>
+                        logs.length === 0 ? (
+                            <div className="text-sm text-gray-500 italic text-center py-4">
+                                No logs available. Upload data to see logs.
+                            </div>
+                        ) : (
+                            <div className="text-sm text-gray-500 italic text-center py-4">
+                                No more logs.
+                            </div>
+                        )
                     ) : (
                         displayedLogs.map((log) => {
                             const isSelected = selectedLog?.id === log.id;
