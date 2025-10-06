@@ -72,7 +72,8 @@ type Log = {
 };
 
 export default function Analytics() {
-  const [logs, setLogs] = useState<Log[]>([]); // starts EMPTY
+  const [logs, setLogs] = useState<Log[]>([]); // all logs
+  const [displayedLogs, setDisplayedLogs] = useState<Log[]>([]); // logs currently displayed
   const [query, setQuery] = useState("");
   const [filters, setFilters] = useState<string[]>([]); // type filters
   const [showFilters, setShowFilters] = useState(false);
@@ -90,11 +91,11 @@ export default function Analytics() {
     status: "",
     host: "",
   });
-
   const [dateFrom, setDateFrom] = useState<string | null>(null);
   const [dateTo, setDateTo] = useState<string | null>(null);
   const [sortOption, setSortOption] = useState("Newest");
   const [selectedLog, setSelectedLog] = useState<Log | null>(null);
+  const [logsToShow, setLogsToShow] = useState(500); // limit for displayed logs
 
   const clearAll = () => {
     setQuery("");
@@ -114,98 +115,111 @@ export default function Analytics() {
     setDateFrom(null);
     setDateTo(null);
     setShowFilters(false);
+    setLogsToShow(500); // reset displayed logs limit
   };
 
-const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  setUploading(true);
-  setUploadProgress(0);
-
-  const reader = new FileReader();
-
-  // fake progress (optional)
-  const interval = setInterval(() => {
-    setUploadProgress((prev) => {
-      if (prev >= 90) {
-        clearInterval(interval);
-        return prev;
-      }
-      return prev + 10;
-    });
-  }, 150);
-
-  reader.onload = (event) => {
-    const rawText = event.target?.result as string;
-    if (!rawText) return;
-
-    // clear old logs
-    setLogs([]);
+    setUploading(true);
     setUploadProgress(0);
 
-    parseNDJSON(
-      rawText,
-      (batch) => {
-        // normalize batch to your Log type
-        const normalized: Log[] = batch.map((entry, idx) => {
-          const r = entry.result || {};
-          let innerRaw: any = {};
-          try {
-            if (r._raw) {
-              innerRaw = JSON.parse(r._raw);
-            }
-          } catch {
-            innerRaw = {};
-          }
+    const reader = new FileReader();
 
-          return {
-            id: innerRaw.id ?? r.id ?? idx,
-            message:
-              innerRaw.appDisplayName ??
-              r.appDisplayName ??
-              innerRaw.resourceDisplayName ??
-              r.resourceDisplayName ??
-              "(no message)",
-            type: r.conditionalAccessStatus ?? "info",
-            timestamp: innerRaw.createdDateTime ?? r.createdDateTime ?? r._time,
-            src_ip: innerRaw.ipAddress ?? r.ipAddress ?? r.src_ip,
-            dest_ip: r.dest ?? "",
-            user:
-              innerRaw.userPrincipalName ??
-              r.user ??
-              r.userPrincipalName,
-            event_type: Array.isArray(r.eventtype)
-              ? r.eventtype.join(", ")
-              : r.eventtype,
-            severity: r.riskLevelDuringSignIn ?? "",
-            app: innerRaw.appDisplayName ?? r.appDisplayName,
-            dest_port: "",
-            src_port: "",
-            status:
-              r["status.failureReason"] ??
-              innerRaw.status?.failureReason ??
-              "",
-            host: r.host ?? "",
-          };
-        });
-
-        // append incrementally
-        setLogs((prev) => [...prev, ...normalized]);
-      },
-      (percent) => {
-        setUploadProgress(percent);
-        if (percent === 100) {
-          setTimeout(() => setUploading(false), 500);
+    // fake progress (optional)
+    const interval = setInterval(() => {
+      setUploadProgress((prev) => {
+        if (prev >= 90) {
+          clearInterval(interval);
+          return prev;
         }
-      }
-    );
+        return prev + 10;
+      });
+    }, 150);
+
+    reader.onload = (event) => {
+      const rawText = event.target?.result as string;
+      if (!rawText) return;
+
+      // clear old logs
+      setLogs([]);
+      setDisplayedLogs([]);
+      setUploadProgress(0);
+
+      parseNDJSON(
+        rawText,
+        (batch) => {
+          // normalize batch to your Log type
+          const normalized: Log[] = batch.map((entry, idx) => {
+            const r = entry.result || {};
+            let innerRaw: any = {};
+            try {
+              if (r._raw) {
+                innerRaw = JSON.parse(r._raw);
+              }
+            } catch {
+              innerRaw = {};
+            }
+
+            return {
+              id: innerRaw.id ?? r.id ?? idx,
+              message:
+                innerRaw.appDisplayName ??
+                r.appDisplayName ??
+                innerRaw.resourceDisplayName ??
+                r.resourceDisplayName ??
+                "(no message)",
+              type: r.conditionalAccessStatus ?? "info",
+              timestamp: innerRaw.createdDateTime ?? r.createdDateTime ?? r._time,
+              src_ip: innerRaw.ipAddress ?? r.ipAddress ?? r.src_ip,
+              dest_ip: r.dest ?? "",
+              user:
+                innerRaw.userPrincipalName ??
+                r.user ??
+                r.userPrincipalName,
+              event_type: Array.isArray(r.eventtype)
+                ? r.eventtype.join(", ")
+                : r.eventtype,
+              severity: r.riskLevelDuringSignIn ?? "",
+              app: innerRaw.appDisplayName ?? r.appDisplayName,
+              dest_port: "",
+              src_port: "",
+              status:
+                r["status.failureReason"] ??
+                innerRaw.status?.failureReason ??
+                "",
+              host: r.host ?? "",
+            };
+          });
+
+          // append incrementally
+          setLogs((prev) => {
+            const updatedLogs = [...prev, ...normalized];
+            setDisplayedLogs(updatedLogs.slice(0, logsToShow)); // update displayed logs
+            return updatedLogs;
+          });
+        },
+        (percent) => {
+          setUploadProgress(percent);
+          if (percent === 100) {
+            setTimeout(() => setUploading(false), 500);
+          }
+        }
+      );
+    };
+
+    reader.readAsText(file);
   };
 
-  reader.readAsText(file);
-};
+  const loadMoreLogs = () => {
+    setLogsToShow((prev) => {
+      const newLimit = prev + 500;
+      setDisplayedLogs(logs.slice(0, newLimit)); // update displayed logs
+      return newLimit;
+    });
+  };
 
-  
   const toggleFilter = (type: string) => {
     setFilters((prev) =>
       prev.includes(type) ? prev.filter((f) => f !== type) : [...prev, type]
@@ -281,8 +295,9 @@ const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
       return b.id - a.id;
     });
 
+    setDisplayedLogs(sorted.slice(0, logsToShow)); // update displayed logs based on filters
     return sorted;
-  }, [logs, query, filters, fieldFilters, dateFrom, dateTo, sortOption]);
+  }, [logs, query, filters, fieldFilters, dateFrom, dateTo, sortOption, logsToShow]);
 
   // close popup on Escape
   useEffect(() => {
@@ -426,13 +441,13 @@ const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         </Button>
 
         {/* Logs List */}
-        <div className="space-y-2 max-h-96 overflow-y-auto">
-          {filteredLogs.length === 0 ? (
+        <div className="space-y-2 max-h-[30vh] overflow-y-auto">
+          {displayedLogs.length === 0 ? (
             <div className="text-sm text-gray-500 italic text-center py-4">
               No logs available. Upload data to see logs.
             </div>
           ) : (
-            filteredLogs.map((log) => {
+            displayedLogs.map((log) => {
               const isSelected = selectedLog?.id === log.id;
               return (
                 <div
@@ -467,6 +482,13 @@ const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
             })
           )}
         </div>
+
+        {/* Load More Button */}
+        {logsToShow < filteredLogs.length && (
+          <Button className="w-full mt-2" onClick={loadMoreLogs}>
+            Load More
+          </Button>
+        )}
       </div>
 
       {/* Right side panel */}
@@ -513,7 +535,7 @@ const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
           if (!open) setSelectedLog(null);
         }}
       >
-        <DialogContent className="w-96">
+        <DialogContent className="w-96 max-h-[70vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle id="log-details-title">Log Details</DialogTitle>
           </DialogHeader>
