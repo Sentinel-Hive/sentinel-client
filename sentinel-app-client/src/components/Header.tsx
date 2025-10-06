@@ -48,14 +48,16 @@ export default function Header() {
     ];
 
     const user: { id: string; name: string } | null = { id: "u1", name: "Ada" };
+    const navigate = useNavigate();
     const notImplemented = () => toast.info("This is not implemented yet");
     const handleAccountClick = () => toast.info("Open Account settings (stub)");
-    const handleLogoutClick = () => toast.success("Logged out (stub)");
+    const handleLogoutClick = () => {
+        toast.success("Logged out");
+        navigate("/login");
+    };
     const handleBecomeHostClick = () => toast.info("Become Host (stub)");
     const handleHelpClick = () => toast.info("Open Help (stub)");
     const handleLoginClick = () => toast.info("Open Login dialog (stub)");
-
-    const navigate = useNavigate();
 
     return (
         <header className="sticky top-0 z-10 border-b border-neutral-800 bg-neutral-900/80 backdrop-blur">
