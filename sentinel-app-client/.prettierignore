@@ -1,0 +1,14 @@
+node_modules
+.next
+build
+package.json
+package-lock.json
+node_modules
+dist
+coverage
+src-tauri/target
+*.a
+*.lib
+*.dll
+*.exe
+=.vscode
