@@ -55,7 +55,6 @@ export default function Header() {
         toast.success("Logged out");
         navigate("/login");
     };
-    const handleBecomeHostClick = () => toast.info("Become Host (stub)");
     const handleHelpClick = () => toast.info("Open Help (stub)");
     const handleLoginClick = () => toast.info("Open Login dialog (stub)");
 
@@ -218,15 +217,7 @@ export default function Header() {
                                         <DropdownMenu.Separator className="my-1 h-px bg-neutral-800" />
                                     </>
                                 )}
-                                <DropdownMenu.Item
-                                    onSelect={(e) => {
-                                        e.preventDefault();
-                                        handleBecomeHostClick();
-                                    }}
-                                    className="md:hidden flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800 text-yellow-400"
-                                >
-                                    <Crown className="h-4 w-4 text-yellow-400" /> Become Host
-                                </DropdownMenu.Item>
+                                
                                 <DropdownMenu.Item
                                     onSelect={(e) => {
                                         e.preventDefault();
