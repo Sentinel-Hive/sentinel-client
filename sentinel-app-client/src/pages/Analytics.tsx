@@ -12,6 +12,8 @@ import {
 import { Checkbox } from "../components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Progress } from "../components/ui/progress";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { UploadCloud } from "lucide-react";
 
 function parseNDJSON(
     rawText: string,
@@ -361,7 +363,7 @@ export default function Analytics() {
     return (
         <div className="flex">
             <div className="flex-1 max-w-sm md:max-w-md lg:max-w-lg xl:max-w-xl 2xl:max-w-2xl ml-0 mr-4 my-4 p-4 bg-[hsl(var(--muted))] border border-[hsl(var(--border))] rounded-lg">
-                {/* Query Input, Here is a test input: src_ip='192.168.1.1' AND user='admin' */}
+                {/* Query Input, Here is a test input: src_ip=192.168.1.1 AND user=admin */}
                 <Input
                     value={query}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
@@ -506,15 +508,9 @@ export default function Analytics() {
                 {/* Logs List */}
                 <div className="space-y-2 max-h-[30vh] overflow-y-auto">
                     {displayedLogs.length === 0 ? (
-                        logs.length === 0 ? (
-                            <div className="text-sm text-gray-500 italic text-center py-4">
-                                No logs available. Upload data to see logs.
-                            </div>
-                        ) : (
-                            <div className="text-sm text-gray-500 italic text-center py-4">
-                                No more logs.
-                            </div>
-                        )
+                        <div className="text-sm text-gray-500 italic text-center py-4">
+                            No more logs.
+                        </div>
                     ) : (
                         displayedLogs.map((log) => {
                             const isSelected = selectedLog?.id === log.id;
@@ -562,38 +558,56 @@ export default function Analytics() {
 
             {/* Right side panel */}
             <div className="flex-1 flex items-center justify-center">
-                {logs.length === 0 ? (
-                    <div className="text-center w-full max-w-sm">
-                        <p className="mb-4 text-gray-500 italic">
-                            No logs available. Upload data to see logs.
-                        </p>
-                        {/* Upload JSON */}
-                        <div className="mt-2">
-                            <input
-                                type="file"
-                                accept=".json"
-                                onChange={handleFileUpload}
-                                className="block w-full text-sm text-gray-500 
-                  file:mr-4 file:py-2 file:px-4
-                  file:rounded-lg file:border-0
-                  file:text-sm file:font-semibold
-                  file:bg-[hsl(var(--primary))] file:text-[hsl(var(--primary-foreground))]
-                  hover:file:bg-[hsl(var(--primary)/0.9)]"
-                            />
-                        </div>
-
-                        {/* Progress Bar */}
-                        {uploading && (
-                            <div className="mt-4">
-                                <Progress value={uploadProgress} className="w-full" />
-                                <p className="text-sm text-gray-500 mt-2">
-                                    Uploading... {uploadProgress}%
+                {logs.length === 0 && (
+                    <Card className="border-neutral-800 bg-neutral-900">
+                        <CardHeader>
+                            <CardTitle className="text-lg">Upload Logs</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div
+                                onDrop={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleFileUpload(e as unknown as React.ChangeEvent<HTMLInputElement>);
+                                }}
+                                onDragOver={(e) => {
+                                    e.preventDefault();
+                                    e.dataTransfer.dropEffect = "copy";
+                                }}
+                            className="relative flex h-40 w-[130%] max-w-4xl flex-col items-center justify-center rounded-2xl border-2 border-dashed
+                        border-neutral-700 bg-neutral-900/60 text-neutral-300 transition
+                        hover:border-[hsl(var(--primary))]/70 hover:bg-neutral-800/40"
+                            >
+                                <UploadCloud className="mb-2 h-10 w-12 text-[hsl(var(--primary))]" />
+                                <p className="text-sm">
+                                    Drag & drop files here, or{" "}
+                                    <button
+                                        type="button"
+                                        onClick={() => document.getElementById("file-input")?.click()}
+                                        className="font-semibold text-[hsl(var(--primary))] underline underline-offset-4"
+                                    >
+                                        browse
+                                    </button>
                                 </p>
+                                <p className="mt-1 text-xs text-neutral-400">Only .json files are supported.</p>
+                                <input
+                                    id="file-input"
+                                    type="file"
+                                    accept=".json"
+                                    onChange={handleFileUpload}
+                                    className="sr-only"
+                                    aria-hidden="true"
+                                    tabIndex={-1}
+                                />
                             </div>
-                        )}
+                        </CardContent>
+                    </Card>
+                )}
+                {uploading && (
+                    <div className="mt-4">
+                        <Progress value={uploadProgress} className="w-full" />
+                        <p className="text-sm text-gray-500 mt-2">Uploading... {uploadProgress}%</p>
                     </div>
-                ) : (
-                    <div className="p-4">{/* summary/stats later */}</div>
                 )}
             </div>
 
