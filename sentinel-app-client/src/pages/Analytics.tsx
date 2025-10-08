@@ -568,13 +568,15 @@ export default function Analytics() {
                                 onDrop={(e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
-                                    handleFileUpload(e as unknown as React.ChangeEvent<HTMLInputElement>);
+                                    handleFileUpload(
+                                        e as unknown as React.ChangeEvent<HTMLInputElement>
+                                    );
                                 }}
                                 onDragOver={(e) => {
                                     e.preventDefault();
                                     e.dataTransfer.dropEffect = "copy";
                                 }}
-                            className="relative flex h-40 w-[130%] max-w-4xl flex-col items-center justify-center rounded-2xl border-2 border-dashed
+                                className="relative flex h-40 w-[130%] max-w-4xl flex-col items-center justify-center rounded-2xl border-2 border-dashed
                         border-neutral-700 bg-neutral-900/60 text-neutral-300 transition
                         hover:border-[hsl(var(--primary))]/70 hover:bg-neutral-800/40"
                             >
@@ -583,13 +585,17 @@ export default function Analytics() {
                                     Drag & drop files here, or{" "}
                                     <button
                                         type="button"
-                                        onClick={() => document.getElementById("file-input")?.click()}
+                                        onClick={() =>
+                                            document.getElementById("file-input")?.click()
+                                        }
                                         className="font-semibold text-[hsl(var(--primary))] underline underline-offset-4"
                                     >
                                         browse
                                     </button>
                                 </p>
-                                <p className="mt-1 text-xs text-neutral-400">Only .json files are supported.</p>
+                                <p className="mt-1 text-xs text-neutral-400">
+                                    Only .json files are supported.
+                                </p>
                                 <input
                                     id="file-input"
                                     type="file"
