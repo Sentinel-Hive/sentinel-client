@@ -51,7 +51,6 @@ export default function Header() {
     const notImplemented = () => toast.info("This is not implemented yet");
     const handleAccountClick = () => toast.info("Open Account settings (stub)");
     const handleLogoutClick = () => {
-        toast.success("Logged out");
         navigate("/login");
     };
     const handleHelpClick = () => toast.info("Open Help (stub)");

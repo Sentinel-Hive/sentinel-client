@@ -23,8 +23,10 @@ export default function Login() {
         // Domain regex (simplified: allows subdomains + TLDs)
         const domainRegex =
             /^(?!-)[A-Za-z0-9-]{1,63}(?<!-)\.(?:[A-Za-z]{2,63})(\.[A-Za-z]{2,63})*$/;
+        
+        const isLocalhost = value === "localhost";
 
-        return ipRegex.test(value) || domainRegex.test(value);
+        return ipRegex.test(value) || domainRegex.test(value) || isLocalhost;
     };
 
     const handleLogin = (e: React.FormEvent) => {

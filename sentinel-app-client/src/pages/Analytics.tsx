@@ -32,7 +32,7 @@ function parseNDJSON(
                 const obj = JSON.parse(lines[index]);
                 batch.push(obj);
             } catch {
-                // skip bad lines
+        
             }
         }
 
@@ -43,7 +43,7 @@ function parseNDJSON(
         onProgress(Math.min(100, Math.round((index / total) * 100)));
 
         if (index < total) {
-            setTimeout(processBatch, 0); // yield to UI so it doesn’t freeze
+            setTimeout(processBatch, 0); 
         }
     }
 
@@ -53,7 +53,7 @@ function parseNDJSON(
 type Log = {
     id: number;
     message: string;
-    type: string; // e.g., "error", "info"
+    type: string;
     src_ip?: string;
     dest_ip?: string;
     user?: string;
@@ -67,7 +67,7 @@ type Log = {
     timestamp?: string;
 };
 
-// Define a type for the expected structure of `r` and `innerRaw`
+
 type RawLog = {
     _raw?: string;
     id?: number;
@@ -87,7 +87,7 @@ type RawLog = {
         failureReason?: string;
     };
     host?: string;
-    [key: string]: unknown; // Allow additional properties
+    [key: string]: unknown;
 };
 
 const filterFields = [
@@ -104,10 +104,10 @@ const filterFields = [
 ];
 
 export default function Analytics() {
-    const [logs, setLogs] = useState<Log[]>([]); // all logs
-    const [displayedLogs, setDisplayedLogs] = useState<Log[]>([]); // logs currently displayed
+    const [logs, setLogs] = useState<Log[]>([]); 
+    const [displayedLogs, setDisplayedLogs] = useState<Log[]>([]); 
     const [query, setQuery] = useState("");
-    const [filters, setFilters] = useState<string[]>([]); // type filters
+    const [filters, setFilters] = useState<string[]>([]); 
     const [showFilters, setShowFilters] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
@@ -127,11 +127,11 @@ export default function Analytics() {
     const [dateTo, setDateTo] = useState<string | null>(null);
     const [sortOption, setSortOption] = useState("Newest");
     const [selectedLog, setSelectedLog] = useState<Log | null>(null);
-    const [logsToShow, setLogsToShow] = useState(500); // limit for displayed logs
-    const ITEMS_PER_LOAD = 20; // Number of items to load per filter
+    const [logsToShow, setLogsToShow] = useState(500); 
+    const ITEMS_PER_LOAD = 20; 
     const [loadedFilterOptions, setLoadedFilterOptions] = useState<Record<string, number>>(
         Object.fromEntries(
-            filterFields.map((f) => [f.key, ITEMS_PER_LOAD]) // Initialize with 20 options per filter
+            filterFields.map((f) => [f.key, ITEMS_PER_LOAD]) 
         )
     );
 
@@ -153,7 +153,7 @@ export default function Analytics() {
         setDateFrom(null);
         setDateTo(null);
         setShowFilters(false);
-        setLogsToShow(500); // reset displayed logs limit
+        setLogsToShow(500);
     };
 
     const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -165,7 +165,6 @@ export default function Analytics() {
 
         const reader = new FileReader();
 
-        // fake progress (optional)
         const interval = setInterval(() => {
             setUploadProgress((prev) => {
                 if (prev >= 90) {
@@ -180,7 +179,6 @@ export default function Analytics() {
             const rawText = event.target?.result as string;
             if (!rawText) return;
 
-            // clear old logs
             setLogs([]);
             setDisplayedLogs([]);
             setUploadProgress(0);
@@ -188,7 +186,6 @@ export default function Analytics() {
             parseNDJSON(
                 rawText,
                 (batch) => {
-                    // normalize batch to your Log type
                     const normalized: Log[] = batch.map((entry, idx) => {
                         const r = (entry as { result?: RawLog }).result || ({} as RawLog);
                         let innerRaw: RawLog = {};
@@ -228,10 +225,10 @@ export default function Analytics() {
                         };
                     });
 
-                    // append incrementally
+                   
                     setLogs((prev) => {
                         const updatedLogs = [...prev, ...normalized];
-                        setDisplayedLogs(updatedLogs.slice(0, logsToShow)); // update displayed logs
+                        setDisplayedLogs(updatedLogs.slice(0, logsToShow)); 
                         return updatedLogs;
                     });
                 },
@@ -250,7 +247,7 @@ export default function Analytics() {
     const loadMoreLogs = () => {
         setLogsToShow((prev) => {
             const newLimit = prev + 500;
-            setDisplayedLogs(logs.slice(0, newLimit)); // update displayed logs
+            setDisplayedLogs(logs.slice(0, newLimit)); 
             return newLimit;
         });
     };
@@ -268,7 +265,7 @@ export default function Analytics() {
     const loadMoreFilterOptions = (field: string) => {
         setLoadedFilterOptions((prev) => ({
             ...prev,
-            [field]: prev[field] + ITEMS_PER_LOAD, // Increment the number of options to display
+            [field]: prev[field] + ITEMS_PER_LOAD, 
         }));
     };
 
@@ -281,7 +278,7 @@ export default function Analytics() {
 
     const parseSQLQuery = (query: string): Record<string, string> => {
         const filters: Record<string, string> = {};
-        const regex = /(\w+)\s*=\s*['"]([^'"]+)['"]/g; // Match key="value" or key='value'
+        const regex = /(\w+)\s*=\s*['"]([^'"]+)['"]/g; 
         let match;
         while ((match = regex.exec(query)) !== null) {
             const [_, key, value] = match;
@@ -291,10 +288,9 @@ export default function Analytics() {
     };
 
     const filteredLogs = useMemo(() => {
-        const sqlFilters = parseSQLQuery(query); // Parse SQL-like query into filters
+        const sqlFilters = parseSQLQuery(query); 
         const list = logs
             .filter((log) => {
-                // Apply SQL-like filters
                 for (const [field, value] of Object.entries(sqlFilters)) {
                     const logValue = String(
                         (log as Record<string, unknown>)[field] ?? ""
@@ -305,7 +301,7 @@ export default function Analytics() {
             })
             .filter((log) => (filters.length > 0 ? filters.includes(log.type) : true))
             .filter((log) => {
-                // date range filter
+     
                 if (dateFrom || dateTo) {
                     const ts = log.timestamp ? new Date(log.timestamp).getTime() : null;
                     if (ts) {
@@ -321,7 +317,7 @@ export default function Analytics() {
                         }
                     }
                 }
-                // field filters
+          
                 for (const [field, value] of Object.entries(fieldFilters)) {
                     if (value && value.trim() !== "") {
                         const logVal = String(
@@ -347,11 +343,10 @@ export default function Analytics() {
             return b.id - a.id;
         });
 
-        setDisplayedLogs(sorted.slice(0, logsToShow)); // update displayed logs based on filters
+        setDisplayedLogs(sorted.slice(0, logsToShow));
         return sorted;
     }, [logs, query, filters, fieldFilters, dateFrom, dateTo, sortOption, logsToShow]);
 
-    // close popup on Escape
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (e.key === "Escape") setSelectedLog(null);
@@ -363,7 +358,6 @@ export default function Analytics() {
     return (
         <div className="flex">
             <div className="flex-1 max-w-sm md:max-w-md lg:max-w-lg xl:max-w-xl 2xl:max-w-2xl ml-0 mr-4 my-4 p-4 bg-[hsl(var(--muted))] border border-[hsl(var(--border))] rounded-lg">
-                {/* Query Input, Here is a test input: src_ip=192.168.1.1 AND user=admin */}
                 <Input
                     value={query}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
@@ -371,7 +365,7 @@ export default function Analytics() {
                     className="w-full mb-2"
                 />
 
-                {/* Filters */}
+              
                 <div className="mb-2">
                     <div className="flex items-center justify-between">
                         <label className="block font-semibold">Filters</label>
@@ -391,7 +385,7 @@ export default function Analytics() {
                                     <div className="text-sm font-medium mb-1">{f.label}</div>
                                     <div className="flex flex-wrap gap-2">
                                         {uniqueValues(f.key)
-                                            .slice(0, loadedFilterOptions[f.key]) // Limit displayed options
+                                            .slice(0, loadedFilterOptions[f.key]) 
                                             .map((val) => {
                                                 const selected = fieldFilters[f.key] === val;
                                                 return (
@@ -487,7 +481,7 @@ export default function Analytics() {
                     )}
                 </div>
 
-                {/* Sort */}
+            
                 <Select value={sortOption} onValueChange={(v) => setSortOption(v)}>
                     <SelectTrigger className="w-full mb-2">
                         <SelectValue placeholder="Sort" />
@@ -500,12 +494,12 @@ export default function Analytics() {
                     </SelectContent>
                 </Select>
 
-                {/* View All Button */}
+            
                 <Button className="w-full mt-2 mb-2" onClick={clearAll}>
                     View All
                 </Button>
 
-                {/* Logs List */}
+           
                 <div className="space-y-2 max-h-[30vh] overflow-y-auto">
                     {displayedLogs.length === 0 ? (
                         <div className="text-sm text-gray-500 italic text-center py-4">
@@ -548,7 +542,7 @@ export default function Analytics() {
                     )}
                 </div>
 
-                {/* Load More Button */}
+           
                 {logsToShow < filteredLogs.length && (
                     <Button className="w-full mt-2" onClick={loadMoreLogs}>
                         Load More
@@ -556,7 +550,7 @@ export default function Analytics() {
                 )}
             </div>
 
-            {/* Right side panel */}
+        
             <div className="flex-1 flex items-center justify-center">
                 {logs.length === 0 && (
                     <Card className="border-neutral-800 bg-neutral-900">
@@ -576,9 +570,9 @@ export default function Analytics() {
                                     e.preventDefault();
                                     e.dataTransfer.dropEffect = "copy";
                                 }}
-                                className="relative flex h-40 w-[130%] max-w-4xl flex-col items-center justify-center rounded-2xl border-2 border-dashed
+                                className="relative flex h-40 w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed
                         border-neutral-700 bg-neutral-900/60 text-neutral-300 transition
-                        hover:border-[hsl(var(--primary))]/70 hover:bg-neutral-800/40"
+                        hover:border-[hsl(var(--primary))]/70 hover:bg-neutral-800/40 px-10"
                             >
                                 <UploadCloud className="mb-2 h-10 w-12 text-[hsl(var(--primary))]" />
                                 <p className="text-sm">
@@ -617,7 +611,7 @@ export default function Analytics() {
                 )}
             </div>
 
-            {/* Popup for log details */}
+   
             <Dialog
                 open={!!selectedLog}
                 onOpenChange={(open) => {
