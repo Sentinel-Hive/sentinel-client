@@ -11,81 +11,8 @@ import {
 } from "../components/ui/select";
 import { Checkbox } from "../components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
-import { Progress } from "../components/ui/progress";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
-import { UploadCloud } from "lucide-react";
-
-function parseNDJSON(
-    rawText: string,
-    onBatch: (logs: Record<string, unknown>[]) => void,
-    onProgress: (percent: number) => void,
-    batchSize = 1000
-) {
-    const lines = rawText.split(/\r?\n/).filter((l) => l.trim().length > 0);
-    const total = lines.length;
-    let index = 0;
-
-    function processBatch() {
-        const batch: Record<string, unknown>[] = [];
-        for (let i = 0; i < batchSize && index < total; i++, index++) {
-            try {
-                const obj = JSON.parse(lines[index]);
-                batch.push(obj);
-            } catch {}
-        }
-
-        if (batch.length) {
-            onBatch(batch);
-        }
-
-        onProgress(Math.min(100, Math.round((index / total) * 100)));
-
-        if (index < total) {
-            setTimeout(processBatch, 0);
-        }
-    }
-
-    processBatch();
-}
-
-type Log = {
-    id: number;
-    message: string;
-    type: string;
-    src_ip?: string;
-    dest_ip?: string;
-    user?: string;
-    event_type?: string;
-    severity?: string;
-    app?: string;
-    dest_port?: string;
-    src_port?: string;
-    status?: string;
-    host?: string;
-    timestamp?: string;
-};
-
-type RawLog = {
-    _raw?: string;
-    id?: number;
-    appDisplayName?: string;
-    resourceDisplayName?: string;
-    conditionalAccessStatus?: string;
-    createdDateTime?: string;
-    _time?: string;
-    ipAddress?: string;
-    src_ip?: string;
-    dest?: string;
-    user?: string;
-    userPrincipalName?: string;
-    eventtype?: string | string[];
-    riskLevelDuringSignIn?: string;
-    status?: {
-        failureReason?: string;
-    };
-    host?: string;
-    [key: string]: unknown;
-};
+import LogUploader from "../components/LogUploader";
+import { Log } from "../types/types";
 
 const filterFields = [
     { key: "src_ip", label: "Source IP" },
@@ -151,91 +78,24 @@ export default function Analytics() {
         setLogsToShow(500);
     };
 
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+    const handleLogsProcessed = (processedLogs: Log[]) => {
+        setLogs(processedLogs);
+        setDisplayedLogs(processedLogs.slice(0, logsToShow));
+    };
 
+    const handleUploadStart = () => {
         setUploading(true);
         setUploadProgress(0);
+        setLogs([]);
+        setDisplayedLogs([]);
+    };
 
-        const reader = new FileReader();
+    const handleUploadProgress = (progress: number) => {
+        setUploadProgress(progress);
+    };
 
-        const interval = setInterval(() => {
-            setUploadProgress((prev) => {
-                if (prev >= 90) {
-                    clearInterval(interval);
-                    return prev;
-                }
-                return prev + 10;
-            });
-        }, 150);
-
-        reader.onload = (event) => {
-            const rawText = event.target?.result as string;
-            if (!rawText) return;
-
-            setLogs([]);
-            setDisplayedLogs([]);
-            setUploadProgress(0);
-
-            parseNDJSON(
-                rawText,
-                (batch) => {
-                    const normalized: Log[] = batch.map((entry, idx) => {
-                        const r = (entry as { result?: RawLog }).result || ({} as RawLog);
-                        let innerRaw: RawLog = {};
-                        try {
-                            if (r._raw) {
-                                innerRaw = JSON.parse(r._raw);
-                            }
-                        } catch {
-                            innerRaw = {};
-                        }
-
-                        return {
-                            id: innerRaw.id ?? r.id ?? idx,
-                            message:
-                                innerRaw.appDisplayName ??
-                                r.appDisplayName ??
-                                innerRaw.resourceDisplayName ??
-                                r.resourceDisplayName ??
-                                "(no message)",
-                            type: r.conditionalAccessStatus ?? "info",
-                            timestamp: innerRaw.createdDateTime ?? r.createdDateTime ?? r._time,
-                            src_ip: innerRaw.ipAddress ?? r.ipAddress ?? r.src_ip,
-                            dest_ip: r.dest ?? "",
-                            user: innerRaw.userPrincipalName ?? r.user ?? r.userPrincipalName,
-                            event_type: Array.isArray(r.eventtype)
-                                ? r.eventtype.join(", ")
-                                : r.eventtype,
-                            severity: r.riskLevelDuringSignIn ?? "",
-                            app: innerRaw.appDisplayName ?? r.appDisplayName,
-                            dest_port: "",
-                            src_port: "",
-                            status:
-                                (typeof r["status.failureReason"] === "string"
-                                    ? r["status.failureReason"]
-                                    : innerRaw.status?.failureReason) ?? "",
-                            host: r.host ?? "",
-                        };
-                    });
-
-                    setLogs((prev) => {
-                        const updatedLogs = [...prev, ...normalized];
-                        setDisplayedLogs(updatedLogs.slice(0, logsToShow));
-                        return updatedLogs;
-                    });
-                },
-                (percent) => {
-                    setUploadProgress(percent);
-                    if (percent === 100) {
-                        setTimeout(() => setUploading(false), 500);
-                    }
-                }
-            );
-        };
-
-        reader.readAsText(file);
+    const handleUploadComplete = () => {
+        setUploading(false);
     };
 
     const loadMoreLogs = () => {
@@ -540,61 +400,14 @@ export default function Analytics() {
 
             <div className="flex-1 flex items-center justify-center">
                 {logs.length === 0 && (
-                    <Card className="border-neutral-800 bg-neutral-900">
-                        <CardHeader>
-                            <CardTitle className="text-lg">Upload Logs</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            <div
-                                onDrop={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    handleFileUpload(
-                                        e as unknown as React.ChangeEvent<HTMLInputElement>
-                                    );
-                                }}
-                                onDragOver={(e) => {
-                                    e.preventDefault();
-                                    e.dataTransfer.dropEffect = "copy";
-                                }}
-                                className="relative flex h-40 w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed
-                        border-neutral-700 bg-neutral-900/60 text-neutral-300 transition
-                        hover:border-[hsl(var(--primary))]/70 hover:bg-neutral-800/40 px-10"
-                            >
-                                <UploadCloud className="mb-2 h-10 w-12 text-[hsl(var(--primary))]" />
-                                <p className="text-sm">
-                                    Drag & drop files here, or{" "}
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            document.getElementById("file-input")?.click()
-                                        }
-                                        className="font-semibold text-[hsl(var(--primary))] underline underline-offset-4"
-                                    >
-                                        browse
-                                    </button>
-                                </p>
-                                <p className="mt-1 text-xs text-neutral-400">
-                                    Only .json files are supported.
-                                </p>
-                                <input
-                                    id="file-input"
-                                    type="file"
-                                    accept=".json"
-                                    onChange={handleFileUpload}
-                                    className="sr-only"
-                                    aria-hidden="true"
-                                    tabIndex={-1}
-                                />
-                            </div>
-                        </CardContent>
-                    </Card>
-                )}
-                {uploading && (
-                    <div className="mt-4">
-                        <Progress value={uploadProgress} className="w-full" />
-                        <p className="text-sm text-gray-500 mt-2">Uploading... {uploadProgress}%</p>
-                    </div>
+                    <LogUploader
+                        onLogsProcessed={handleLogsProcessed}
+                        uploading={uploading}
+                        uploadProgress={uploadProgress}
+                        onUploadStart={handleUploadStart}
+                        onUploadProgress={handleUploadProgress}
+                        onUploadComplete={handleUploadComplete}
+                    />
                 )}
             </div>
 
