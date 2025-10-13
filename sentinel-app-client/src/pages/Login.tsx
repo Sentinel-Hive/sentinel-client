@@ -16,15 +16,15 @@ export default function Login() {
     const [error, setError] = useState("");
 
     const validateIpOrDomain = (value: string) => {
-        // IPv4 regex
         const ipRegex =
             /^(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}$/;
 
-        // Domain regex (simplified: allows subdomains + TLDs)
         const domainRegex =
             /^(?!-)[A-Za-z0-9-]{1,63}(?<!-)\.(?:[A-Za-z]{2,63})(\.[A-Za-z]{2,63})*$/;
 
-        return ipRegex.test(value) || domainRegex.test(value);
+        const isLocalhost = value === "localhost";
+
+        return ipRegex.test(value) || domainRegex.test(value) || isLocalhost;
     };
 
     const handleLogin = (e: React.FormEvent) => {
@@ -35,20 +35,17 @@ export default function Login() {
             return;
         }
 
-        setError(""); // clear error if valid
+        setError("");
 
-        // Login logic goes here (API call, auth, etc.)
         navigate("/analytics");
     };
 
     return (
         <div className="fixed inset-0 flex overflow-hidden bg-[conic-gradient(from_225deg,_#1a1a1a_0_50%,_#e7a934_50%)]">
-            {/* Left Side */}
             <div className="flex items-center justify-center flex-1 h-full">
                 <img src="/SH_Logo_HD.png" alt="Sentinel Logo" className="max-w-xs w-2/3 h-auto" />
             </div>
 
-            {/* Right Side */}
             <div className="flex items-center justify-center flex-1 h-full p-4 sm:p-6">
                 <Card className="w-full max-w-md bg-neutral-800 border-neutral-700">
                     <CardHeader>
@@ -56,14 +53,12 @@ export default function Login() {
                     </CardHeader>
                     <CardContent>
                         <form onSubmit={handleLogin} className="space-y-4">
-                            {/* Error Message */}
                             {error && (
                                 <div className="p-2 mb-2 text-sm text-red-500 bg-red-100 rounded">
                                     {error}
                                 </div>
                             )}
 
-                            {/* Username */}
                             <div className="space-y-2">
                                 <Label htmlFor="username" className="text-gray-300">
                                     Username
@@ -79,7 +74,6 @@ export default function Login() {
                                 />
                             </div>
 
-                            {/* Password */}
                             <div className="space-y-2">
                                 <Label htmlFor="password" className="text-gray-300">
                                     Password
@@ -95,7 +89,6 @@ export default function Login() {
                                 />
                             </div>
 
-                            {/* IP Address / Domain */}
                             <div className="space-y-2">
                                 <Label htmlFor="ip" className="text-gray-300">
                                     IP Address / Domain
@@ -111,7 +104,6 @@ export default function Login() {
                                 />
                             </div>
 
-                            {/* Login Button */}
                             <Button
                                 type="submit"
                                 className="w-full bg-[#e7a934] hover:bg-yellow-700 text-black font-bold"
