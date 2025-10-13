@@ -8,7 +8,6 @@ import {
     User as UserIcon,
     LogIn,
     LogOut,
-    Crown,
     Info,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -242,7 +241,7 @@ export default function Header() {
                                         <DropdownMenu.Separator className="my-1 h-px bg-neutral-800" />
                                     </>
                                 )}
-                                
+
                                 <DropdownMenu.Item
                                     onSelect={(e) => {
                                         e.preventDefault();

@@ -139,7 +139,7 @@ export default function Login() {
                   className="bg-neutral-700 text-white border-neutral-600"
                 />
                 <div className="flex items-center gap-2">
-                  <Button type="button" variant="outline" onClick={handlePing} className="text-black">
+                  <Button type="button" variant="outline" onClick={handlePing} className="text-white">
                     Ping
                   </Button>
                   <span className="text-xs text-gray-400">{pingMsg}</span>
