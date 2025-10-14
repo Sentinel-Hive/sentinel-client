@@ -1,5 +1,4 @@
 // src/components/Header.tsx
-import { useEffect, useState } from "react";
 import { useNavigate, NavLink } from "react-router-dom";
 import {
     RotateCw,
@@ -13,8 +12,6 @@ import {
 import { toast } from "sonner";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import AlertNotification, { Severity } from "./AlertNotification";
-
-import { logout, isAuthenticated } from "../lib/session";
 
 const navLinkClass = "px-3 py-2 rounded-xl text-sm font-medium transition hover:bg-neutral-800/60";
 const activeClass = "bg-neutral-800";
@@ -50,37 +47,14 @@ export default function Header() {
     ];
 
     const user: { id: string; name: string } | null = { id: "u1", name: "Ada" };
+    const navigate = useNavigate();
     const notImplemented = () => toast.info("This is not implemented yet");
     const handleAccountClick = () => toast.info("Open Account settings (stub)");
-
+    const handleLogoutClick = () => {
+        navigate("/login");
+    };
     const handleHelpClick = () => toast.info("Open Help (stub)");
-    const [authed, setAuthed] = useState<boolean>(isAuthenticated());
-
-    const navigate = useNavigate();
-
-    useEffect(() => {
-        const onFocus = () => setAuthed(isAuthenticated());
-        window.addEventListener("focus", onFocus);
-        return () => window.removeEventListener("focus", onFocus);
-    }, []);
-
-    const handleLoginClick = () => {
-        // go to your login page route
-        navigate("/login");
-    };
-
-  const handleLogoutClick = async () => {
-        try {
-        await logout(); // calls server /auth/logout and clears in-memory token
-        setAuthed(false);
-        toast.success("Logged out");
-        // send user back to login (or home)
-        navigate("/login");
-        } catch (e: any) {
-        toast.error(`Logout failed: ${e?.message || e}`);
-        }
-    };
-
+    const handleLoginClick = () => toast.info("Open Login dialog (stub)");
 
     return (
         <header className="sticky top-0 z-10 border-b border-neutral-800 bg-neutral-900/80 backdrop-blur">
