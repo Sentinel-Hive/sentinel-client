@@ -13,7 +13,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "validate": "npm run format && npm run lint && npm run build",
+    "validate": "npm run format && npm run lint:fix && npm run build",
     "release": "npm run format && npm run lint && tauri build"
   },
   "dependencies": {
