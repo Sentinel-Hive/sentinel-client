@@ -36,3 +36,9 @@ export type RawLog = {
     host?: string;
     [key: string]: unknown;
 };
+
+export interface UserData {
+    token: string;
+    user_id: string;
+    is_admin: boolean;
+}
