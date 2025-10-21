@@ -17,7 +17,7 @@ export default function User() {
     const [userList, setUserList] = useState<User[]>(fakeUsers);
 
     return (
-        <div className="flex w-full h-full border-yellow-600 border rounded-md p-5">
+        <div className="flex w-full h-full border-yellow-600 border p-5">
             {userList.map((u, i) => (
                 <p key={i}>
                     {u.id},{u.user_id}

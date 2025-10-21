@@ -15,6 +15,16 @@ export type Log = {
     timestamp?: string;
 };
 
+export type DatasetItem = {
+    id: string;
+    name: string;
+    size: number;
+    lastModified?: number;
+    content: string;
+    addedAt: string;
+    updatedAt: string;
+};
+
 export type RawLog = {
     _raw?: string;
     id?: number;

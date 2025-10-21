@@ -30,7 +30,7 @@ export default function Admin() {
                 {settings.map((page, i) => (
                     <Button
                         key={i}
-                        className={`text-xl ${page.title.toLowerCase() == currentPage ? "bg-yellow-600 font-bold" : ""}`}
+                        className={`text-xl rounded-none font-bold ${page.title.toLowerCase() == currentPage ? "bg-yellow-600 font-light" : ""}`}
                         onClick={() => setCurrentPage(page.title.toLowerCase())}
                     >
                         {page.title}
