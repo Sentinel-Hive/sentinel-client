@@ -4,6 +4,7 @@ import Analytics from "./pages/Analytics";
 import Datasets from "./pages/Datasets";
 import Alerts from "./pages/Alerts";
 import Login from "./pages/Login";
+import Dev from "./pages/Dev";
 import { Toaster } from "sonner";
 
 function App() {
@@ -25,6 +26,7 @@ function App() {
                     <Route path="/analytics" element={<Analytics />} />
                     <Route path="/datasets" element={<Datasets />} />
                     <Route path="/alerts" element={<Alerts />} />
+                    <Route path="/dev" element={<Dev />} />
 
                     {/* 404 */}
                     <Route

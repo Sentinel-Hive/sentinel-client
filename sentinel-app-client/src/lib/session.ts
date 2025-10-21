@@ -1,6 +1,6 @@
 let _baseURL =
     (typeof localStorage !== "undefined" && localStorage.getItem("svh.baseUrl")) ||
-    "http://127.0.0.1:8000";
+    "http://127.0.0.1:5167";
 let _token: string | null = null;
 
 function normalizeBaseURL(input: string): string {
@@ -8,7 +8,7 @@ function normalizeBaseURL(input: string): string {
     if (!s) throw new Error("Server address is required");
     if (!/^https?:\/\//i.test(s)) s = "http://" + s; // default http
     const u = new URL(s);
-    if (!u.port) u.port = "8000"; // default port
+    if (!u.port) u.port = "5167"; // default port
     // strip trailing slash
     return u.toString().replace(/\/+$/, "");
 }
@@ -138,4 +138,110 @@ function attachLogoutOnClose() {
             _token = null;
         });
     }
+}
+
+let _websocket: WebSocket | null = null;
+let _websocketUrl: string | null = null;
+let _wsHandlers = new Set<(msg: any) => void>();
+let _wsRetryMs = 1000; // simple retry backoff (1s -> 5s cap)
+const _wsRetryMax = 5000;
+
+function makeWebsocketUrl(base: string, token: string) {
+    const u = new URL(base);
+    u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
+    u.pathname = "/websocket";
+    u.search = `token=${encodeURIComponent(token)}`;
+    return u.toString();
+}
+
+
+export function websocketSend(message: unknown) {
+    if (_websocket && _websocket.readyState === WebSocket.OPEN) {
+        _websocket.send(JSON.stringify(message));
+    }
+}
+
+export function onWebsocketMessage(handler: (msg: any) => void) {
+    _wsHandlers.add(handler);
+    return () => {
+        _wsHandlers.delete(handler);
+    };
+}
+
+export function closeWebsocket() {
+    try {
+        _websocket?.close();
+    } catch {}
+    _websocket = null;
+    _websocketUrl = null;
+}
+
+let _wsOpen = false;
+let _wsOpenHandlers = new Set<(open: boolean) => void>();
+
+export function isWebsocketOpen() {
+    return _wsOpen;
+}
+export function onWebsocketOpen(handler: (open: boolean) => void) {
+    _wsOpenHandlers.add(handler);
+    return () => {
+        _wsOpenHandlers.delete(handler);
+    };
+}
+function _emitWsOpen(open: boolean) {
+    _wsOpen = open;
+    for (const fn of _wsOpenHandlers)
+        try {
+            fn(open);
+        } catch {}
+}
+
+// Add near other exports:
+export function getWebsocketDebugUrl(): string {
+  const token = _token ?? "";
+  const u = new URL(_baseURL);
+  u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
+  u.pathname = "/websocket";
+  if (token) u.search = `token=${encodeURIComponent(token)}`;
+  return u.toString();
+}
+
+// In connectWebsocket(): remove this guard so we try regardless of token
+export function connectWebsocket() {
+  // if (!_token) return;  <-- remove this line
+
+  const url = getWebsocketDebugUrl();  // use the same computed URL
+  _websocketUrl = url;
+
+  try { _websocket?.close(); } catch {}
+
+  const ws = new WebSocket(url);
+  _websocket = ws;
+
+  ws.onopen = () => {
+    _wsRetryMs = 1000;
+    _emitWsOpen(true);
+    // still send hello; server will welcome or echo
+    ws.send(JSON.stringify({ type: "hello", client: "sentinel-client" }));
+  };
+
+  ws.onmessage = (ev) => {
+    let msg: any = ev.data;
+    try { msg = JSON.parse(ev.data); } catch {}
+    for (const fn of _wsHandlers) { try { fn(msg); } catch {} }
+  };
+
+  ws.onclose = () => {
+    _emitWsOpen(false);
+    if (_websocketUrl === url) {
+      const delay = _wsRetryMs;
+      _wsRetryMs = Math.min(_wsRetryMs + 1000, _wsRetryMax);
+      setTimeout(connectWebsocket, delay);
+    }
+  };
+
+  ws.onerror = () => {
+    _emitWsOpen(false);
+    try { ws.close(); } catch {}
+  };
 }

@@ -5,7 +5,7 @@ import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import { Label } from "../components/ui/label";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "../components/ui/card";
-import { login, getBaseURL } from "../lib/session";
+import { login, getBaseURL, connectWebsocket } from "../lib/session";
 
 export default function Login() {
     const navigate = useNavigate();
@@ -45,7 +45,7 @@ export default function Login() {
                 const s = server.trim();
                 const url = /^https?:\/\//i.test(s) ? s : `http://${s}`;
                 const u = new URL(url);
-                if (!u.port) u.port = "8000";
+                if (!u.port) u.port = "5167";
                 const res = await fetch(u.toString().replace(/\/+$/, "") + "/health/ready");
                 return res.ok;
             } catch {
@@ -72,6 +72,7 @@ export default function Login() {
         try {
             setBusy(true);
             await login({ baseUrl: server, userId: username, password });
+            connectWebsocket();
             navigate("/analytics"); // success
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err) || "Login failed";
@@ -139,7 +140,7 @@ export default function Login() {
                                     type="text"
                                     value={server}
                                     onChange={(e) => setServer(e.target.value)}
-                                    placeholder="127.0.0.1:8000 or 10.0.0.5"
+                                    placeholder="127.0.0.1:5167 or 10.0.0.5"
                                     required
                                     className="bg-neutral-700 text-white border-neutral-600"
                                 />

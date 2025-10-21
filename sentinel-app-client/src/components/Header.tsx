@@ -86,6 +86,14 @@ export default function Header() {
                     >
                         Alerts
                     </NavLink>
+                    <NavLink
+                        to="/dev"
+                        className={({ isActive }) =>
+                            `${navLinkClass} ${isActive ? activeClass : ""}`
+                        }
+                    >
+                        Dev
+                    </NavLink>
                 </nav>
 
                 {/* Right: actions */}
