@@ -1,29 +1,39 @@
 import AlertCard from "../components/AlertCard";
+import { useAlerts } from "../lib/alertsStore";
 
 export default function Alerts() {
-    const example = {
-        id: "evt-9YH27",
-        title: "Spike in 5xx errors on api-gateway",
-        severity: "high" as const,
-        source: "nginx@edge-us-east-1",
-        timestamp: new Date().toISOString(),
-        description:
-            "Error rate exceeded 3% over 5 minutes. Upstream timeouts likely. Auto-mitigation paused for manual review.",
-        tags: ["api", "errors", "gateway"],
-    };
+    const alerts = useAlerts(); // live
 
     return (
         <div className="mx-auto max-w-5xl p-6 space-y-6">
             <header className="flex items-end justify-between">
                 <h2 className="text-2xl font-semibold tracking-tight">Alerts</h2>
-                <div className="text-sm text-white/60">Example preview</div>
+                <div className="text-sm text-white/60">{alerts.length} total</div>
             </header>
 
-            <div className="grid gap-4">
-                <AlertCard {...example} />
-                <AlertCard {...example} />
-                <AlertCard {...example} />
-            </div>
+            {alerts.length === 0 ? (
+                <div className="text-white/70">No alerts yet.</div>
+            ) : (
+                <div className="grid gap-4">
+                    {alerts.map((a) => (
+                        <AlertCard
+                            key={a.id}
+                            id={a.id}
+                            title={a.title}
+                            severity={a.severity}
+                            source={a.source}
+                            timestamp={a.timestamp}
+                            description={a.description}
+                            tags={a.tags}
+                            acknowledged={a.acknowledged}
+                            onAcknowledge={(id) => {
+                                // optional: update store; server-side ack can come later
+                                // import { acknowledge } from "../lib/alertsStore" if you want
+                            }}
+                        />
+                    ))}
+                </div>
+            )}
         </div>
     );
 }

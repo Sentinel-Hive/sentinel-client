@@ -12,6 +12,7 @@ import {
 import { toast } from "sonner";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import AlertNotification, { Severity } from "./AlertNotification";
+import { useAlerts } from "../lib/alertsStore";
 
 const navLinkClass = "px-3 py-2 rounded-xl text-sm font-medium transition hover:bg-neutral-800/60";
 const activeClass = "bg-neutral-800";
@@ -24,27 +25,13 @@ type Notification = {
 };
 
 export default function Header() {
-    // example notifications
-    const notifications: Notification[] = [
-        {
-            id: "n1",
-            severity: "high",
-            timestamp: new Date(Date.now() - 7 * 60 * 1000).toISOString(), // 7m ago
-            description: "High latency detected in api-gateway (p95 > 1.2s).",
-        },
-        {
-            id: "n2",
-            severity: "critical",
-            timestamp: new Date(Date.now() - 65 * 60 * 1000).toISOString(), // 65m ago
-            description: "Error spike: 5xx > 4% in us-east-1. Auto-mitigation paused.",
-        },
-        {
-            id: "n3",
-            severity: "medium",
-            timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(), // 5h ago
-            description: "Disk usage warning on log-storage-03 (78%).",
-        },
-    ];
+    const alerts = useAlerts();
+    const notifications = alerts.slice(0, 10).map((a) => ({
+        id: a.id,
+        severity: a.severity as Severity,
+        timestamp: a.timestamp,
+        description: a.description || a.title,
+    }));
 
     const user: { id: string; name: string } | null = { id: "u1", name: "Ada" };
     const navigate = useNavigate();

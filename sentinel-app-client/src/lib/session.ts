@@ -1,3 +1,5 @@
+import { addAlert, Alert as AlertType } from "./alertsStore";
+
 let _baseURL =
     (typeof localStorage !== "undefined" && localStorage.getItem("svh.baseUrl")) ||
     "http://127.0.0.1:5167";
@@ -205,6 +207,13 @@ export function connectWebsocket() {
         let msg: any;
         try {
             msg = JSON.parse(ev.data);
+            if (msg && msg.type === "alert") {
+                // Basic runtime shape check; trust server fields
+                const alert = msg as AlertType;
+                try {
+                    addAlert(alert);
+                } catch {}
+            }
         } catch {
             msg = ev.data;
         }
