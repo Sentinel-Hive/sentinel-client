@@ -16,23 +16,25 @@ export default function Dev() {
     const [wsReady, setWsReady] = useState(isWebsocketOpen());
     const [token, setToken] = useState<string | null>(getToken());
 
-    // Alert form state
+    // --- popup form ---
+    const [popupText, setPopupText] = useState("Hello from Dev custom popup");
+
+    // --- alert form ---
     const [title, setTitle] = useState("Test Alert");
     const [severity, setSeverity] = useState<Severity>("high");
     const [description, setDescription] = useState("This is a test alert from Dev page");
     const [tags, setTags] = useState("dev, test");
 
-    // Optional popup preview
+    // local popup preview
     const [popup, setPopup] = useState<string | null>(null);
 
     useEffect(() => {
-        // keep status in sync
         const offOpen = onWebsocketOpen((open) => {
             setWsReady(open);
             setToken(getToken());
         });
-        // log any incoming messages (and surface popups)
         const offMsg = onWebsocketMessage((msg: any) => {
+            // surface server popups
             if (msg?.type === "popup") {
                 setPopup(msg.text ?? JSON.stringify(msg));
             }
@@ -54,7 +56,14 @@ export default function Dev() {
             .filter(Boolean);
     }
 
+    // --- senders ---
+    function sendTestPopup() {
+        // Goes over WS as dev_popup → routes.py echoes/broadcasts popup
+        websocketSend({ type: "dev_popup", text: popupText });
+    }
+
     function sendTestAlert() {
+        // Goes over WS as dev_alert → short-circuited to broadcast alert
         websocketSend({
             type: "dev_alert",
             title,
@@ -65,12 +74,8 @@ export default function Dev() {
         });
     }
 
-    function testPopup() {
-        setPopup("Local popup test from Dev page");
-    }
-
     return (
-        <div style={{ padding: 16, display: "grid", gap: 12, maxWidth: 720 }}>
+        <div style={{ padding: 16, display: "grid", gap: 16, maxWidth: 720 }}>
             <h1>Dev</h1>
 
             <div style={{ fontSize: 12 }}>
@@ -85,15 +90,32 @@ export default function Dev() {
                 </button>
             </div>
 
-            <fieldset
-                style={{
-                    border: "1px solid #333",
-                    borderRadius: 12,
-                    padding: 16,
-                    display: "grid",
-                    gap: 12,
-                }}
-            >
+            {/* ---- Custom Popup ---- */}
+            <fieldset style={{ border: "1px solid #333", borderRadius: 12, padding: 16 }}>
+                <legend style={{ padding: "0 8px" }}>Send Test Popup</legend>
+                <label style={{ display: "grid", gap: 4 }}>
+                    <span>Popup text</span>
+                    <input
+                        value={popupText}
+                        onChange={(e) => setPopupText(e.target.value)}
+                        placeholder="Popup text…"
+                        style={{
+                            padding: 8,
+                            background: "#1f1f1f",
+                            border: "1px solid #444",
+                            color: "#fff",
+                        }}
+                    />
+                </label>
+                <div style={{ marginTop: 8 }}>
+                    <button onClick={sendTestPopup} disabled={!wsReady}>
+                        Send Test Popup
+                    </button>
+                </div>
+            </fieldset>
+
+            {/* ---- Custom Alert ---- */}
+            <fieldset style={{ border: "1px solid #333", borderRadius: 12, padding: 16 }}>
                 <legend style={{ padding: "0 8px" }}>Send Test Alert</legend>
 
                 <label style={{ display: "grid", gap: 4 }}>
@@ -111,7 +133,14 @@ export default function Dev() {
                     />
                 </label>
 
-                <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr" }}>
+                <div
+                    style={{
+                        display: "grid",
+                        gap: 12,
+                        gridTemplateColumns: "1fr 1fr",
+                        marginTop: 8,
+                    }}
+                >
                     <label style={{ display: "grid", gap: 4 }}>
                         <span>Severity</span>
                         <select
@@ -147,7 +176,7 @@ export default function Dev() {
                     </label>
                 </div>
 
-                <label style={{ display: "grid", gap: 4 }}>
+                <label style={{ display: "grid", gap: 4, marginTop: 8 }}>
                     <span>Description</span>
                     <textarea
                         value={description}
@@ -163,11 +192,10 @@ export default function Dev() {
                     />
                 </label>
 
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ marginTop: 8 }}>
                     <button onClick={sendTestAlert} disabled={!wsReady}>
                         Send Test Alert
                     </button>
-                    <button onClick={testPopup}>Test Popup</button>
                 </div>
             </fieldset>
 
