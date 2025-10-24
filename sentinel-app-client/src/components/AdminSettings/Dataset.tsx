@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,8 +16,10 @@ import {
     X,
 } from "lucide-react";
 import { DatasetItem } from "@/types/types";
+import { toast } from "sonner";
 
 export default function Dataset() {
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
     const [uploadStatus, setUploadStatus] = useState<string>("");
     const [isError, setIsError] = useState<boolean>(false);
@@ -52,45 +54,48 @@ export default function Dataset() {
         setIsError(false);
     };
 
-    const handleUpload = async () => {
-        if (selectedFiles.length === 0) {
-            setUploadStatus("Please select one or more JSON files.");
-            setIsError(true);
-            return;
-        }
-        const formData = new FormData();
-        selectedFiles.forEach((file) => {
-            formData.append("datasets", file);
+    // const handleUpload = async () => {
+    //     if (selectedFiles.length === 0) {
+    //         setUploadStatus("Please select one or more JSON files.");
+    //         setIsError(true);
+    //         return;
+    //     }
+    //     const formData = new FormData();
+    //     selectedFiles.forEach((file) => {
+    //         formData.append("datasets", file);
+    //     });
+
+    //     setUploadStatus("Uploading...");
+    //     setIsError(false);
+    //     try {
+    //         const response = await fetch("/api/ingest", {
+    //             method: "POST",
+    //             body: formData,
+    //         });
+
+    //         const result: { message?: string; error?: string } = await response.json();
+
+    //         if (response.ok) {
+    //             setUploadStatus(
+    //                 `Upload successful! ${result.message || "Contents logged to terminal."}`
+    //             );
+    //             setIsError(false);
+    //             setSelectedFiles([]);
+    //         } else {
+    //             setUploadStatus(`Upload failed: ${result.error || "Unknown error"}`);
+    //             setIsError(true);
+    //         }
+    //     } catch (error) {
+    //         console.error("Network error during upload:", error);
+
+    //         setUploadStatus(`An error occurred during upload: ${(error as Error).message}`);
+    //         setIsError(true);
+    //     }
+    // };
+    const handleUploadClick = () => {
+        toast("Coming Soon", {
+            description: "This feature is under development.",
         });
-
-        setUploadStatus("Uploading...");
-        setIsError(false);
-        /* HERE, we try to upload it to the server
-        try {
-            const response = await fetch("/api/ingest", {
-                method: "POST",
-                body: formData,
-            });
-
-            const result: { message?: string; error?: string } = await response.json();
-
-            if (response.ok) {
-                setUploadStatus(
-                    `Upload successful! ${result.message || "Contents logged to terminal."}`
-                );
-                setIsError(false);
-                setSelectedFiles([]);
-            } else {
-                setUploadStatus(`Upload failed: ${result.error || "Unknown error"}`);
-                setIsError(true);
-            }
-        } catch (error) {
-            console.error("Network error during upload:", error);
-
-            setUploadStatus(`An error occurred during upload: ${(error as Error).message}`);
-            setIsError(true);
-        }
-        */
     };
 
     const handleSaveToMemory = async () => {
@@ -126,11 +131,18 @@ export default function Dataset() {
 
             setItems((prev) => [...newItems, ...prev]);
             setSelectedFiles([]);
+
+            if (fileInputRef.current) {
+                fileInputRef.current.value = "";
+            }
+
             setUploadStatus(`Saved ${newItems.length} file(s) to memory. (Not uploaded)`);
             setIsError(false);
         } catch (error) {
             setUploadStatus((error as Error).message || "Failed to read files");
             setIsError(true);
+        } finally {
+            setSelectedFiles([]);
         }
     };
 
@@ -166,12 +178,20 @@ export default function Dataset() {
                 <CardHeader>
                     <CardTitle className="flex items-center space-x-2">
                         <Upload className="h-5 w-5 text-yellow-600" />
-                        <span>Local (In-Memory) JSON Datasets</span>
+                        <span>Dataset Manager</span>
                     </CardTitle>
+                    <Alert className="border-yellow-500">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle>Heads up</AlertTitle>
+                        <AlertDescription>
+                            Files saved here live <strong>only in memory</strong>. If you leave or
+                            refresh this page, they’ll be lost. Ensure you upload desired datasets
+                            to the server before leaving.
+                        </AlertDescription>
+                    </Alert>
                 </CardHeader>
 
                 <CardContent className="space-y-6">
-                    {/* Picker + Save */}
                     <div className="flex w-full items-center space-x-4">
                         <Input
                             id="json-files"
@@ -180,6 +200,7 @@ export default function Dataset() {
                             multiple
                             onChange={handleFileChange}
                             className="flex-1"
+                            ref={fileInputRef}
                         />
                         <Button
                             onClick={handleSaveToMemory}
@@ -194,21 +215,11 @@ export default function Dataset() {
                             ) : (
                                 <>
                                     <Upload className="h-4 w-4" />
-                                    <span>Save to memory ({humanCount})</span>
+                                    <span>Stage ({humanCount})</span>
                                 </>
                             )}
                         </Button>
                     </div>
-
-                    <Alert className="border-yellow-500">
-                        <AlertTriangle className="h-4 w-4" />
-                        <AlertTitle>Heads up</AlertTitle>
-                        <AlertDescription>
-                            Files saved here live <strong>only in memory</strong>. If you leave or
-                            refresh this page, they’ll be lost unless you implement a server upload
-                            or local persistence.
-                        </AlertDescription>
-                    </Alert>
 
                     {uploadStatus && (
                         <Alert
@@ -246,12 +257,12 @@ export default function Dataset() {
 
                     <div className="space-y-2">
                         <h3 className="text-sm font-semibold text-gray-700">
-                            In-Memory Datasets {hasUnsaved ? "(unsaved changes)" : ""}
+                            Stagged Datasets {hasUnsaved ? "(uncommitted data)" : ""}
                         </h3>
 
                         {items.length === 0 ? (
                             <div className="text-sm text-muted-foreground">
-                                Nothing saved yet. Add some JSON files above.
+                                Nothing staged yet. Add some JSON files above.
                             </div>
                         ) : (
                             <ul className="divide-y rounded-md border">
@@ -261,6 +272,13 @@ export default function Dataset() {
                                         className="flex items-center justify-between p-3"
                                     >
                                         <div className="flex items-center min-w-0">
+                                            <Button
+                                                variant="ghost"
+                                                className="mr-3 h-fit py-2 w-fit hover:bg-gray-900"
+                                                onClick={() => handleUploadClick()}
+                                            >
+                                                <Upload className="text-yellow-500 size-5" />
+                                            </Button>
                                             <FileText className="h-4 w-4 mr-2 flex-shrink-0" />
                                             {editingId === it.id ? (
                                                 <div className="flex items-center gap-2">
@@ -281,7 +299,7 @@ export default function Dataset() {
                                                         <Save className="h-4 w-4" />
                                                     </Button>
                                                     <Button
-                                                        size="md"
+                                                        size="sm"
                                                         variant="ghost"
                                                         onClick={cancelEdit}
                                                         aria-label="Cancel"
@@ -312,7 +330,7 @@ export default function Dataset() {
                                         <div className="flex items-center gap-1">
                                             {editingId !== it.id && (
                                                 <Button
-                                                    size="md"
+                                                    size="sm"
                                                     variant="ghost"
                                                     onClick={() => startEdit(it.id, it.name)}
                                                     aria-label="Rename"
@@ -322,7 +340,7 @@ export default function Dataset() {
                                                 </Button>
                                             )}
                                             <Button
-                                                size="md"
+                                                size="sm"
                                                 variant="ghost"
                                                 onClick={() => handleDelete(it.id)}
                                                 aria-label="Delete"
