@@ -17,6 +17,54 @@ import {
 } from "lucide-react";
 import { DatasetItem } from "@/types/types";
 import { toast } from "sonner";
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from "@/components/ui/table";
+
+const formatSize = (sizeInBytes: number) => {
+    if (sizeInBytes < 1024) {
+        return `${sizeInBytes} B`;
+    } else if (sizeInBytes < 1024 * 1024) {
+        return `${(sizeInBytes / 1024).toFixed(1)} KB`;
+    } else {
+        return `${(sizeInBytes / (1024 * 1024)).toFixed(1)} MB`;
+    }
+};
+
+const DUMMY_DATA = [
+    {
+        id: "dset_001",
+        name: "evil-data_Q4_2023.json",
+        size: 15485760,
+        lastModified: 1672531200000,
+        content: "json",
+        addedAt: "2024-01-10T10:00:00Z",
+        updatedAt: "2024-01-10T10:00:00Z",
+    },
+    {
+        id: "dset_002",
+        name: "web_traffic_2026.json",
+        size: 256000,
+        lastModified: 1704153600000,
+        content: "json",
+        addedAt: "2024-02-15T14:30:00Z",
+        updatedAt: "2024-02-15T14:30:00Z",
+    },
+    {
+        id: "dset_003",
+        name: "Web_Traffic_Logs_2024.json",
+        size: 4294967296,
+        lastModified: 1711929600000,
+        content: "application/zip",
+        addedAt: "2024-03-20T08:45:00Z",
+        updatedAt: "2024-04-01T11:00:00Z",
+    },
+];
 
 export default function Dataset() {
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -25,6 +73,8 @@ export default function Dataset() {
     const [isError, setIsError] = useState<boolean>(false);
 
     const [items, setItems] = useState<DatasetItem[]>([]);
+    const [uploadedItems, setUploadedItems] = useState<DatasetItem[]>(DUMMY_DATA);
+
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editValue, setEditValue] = useState<string>("");
 
@@ -92,10 +142,22 @@ export default function Dataset() {
     //         setIsError(true);
     //     }
     // };
-    const handleUploadClick = () => {
-        toast("Coming Soon", {
-            description: "This feature is under development.",
-        });
+    const handleUploadClick = (itemId: string) => {
+        const itemToMove = items.find((item) => item.id === itemId);
+
+        if (itemToMove) {
+            setItems((prevStaged) => prevStaged.filter((item) => item.id !== itemId));
+
+            setUploadedItems((prevUploaded) => [
+                ...prevUploaded,
+                {
+                    ...itemToMove,
+                    uploadTime: new Date().toISOString(),
+                },
+            ]);
+
+            // Perform the actual server upload here
+        }
     };
 
     const handleSaveToMemory = async () => {
@@ -172,6 +234,121 @@ export default function Dataset() {
         setItems((prev) => prev.filter((it) => it.id !== id));
     };
 
+    const handleFinalUpload = () => {
+        if (items.length === 0) {
+            setUploadStatus("No staged datasets to upload.");
+            setIsError(true);
+            return;
+        }
+
+        setUploadStatus(`Uploading ${items.length} dataset(s) to server...`);
+        setIsError(false);
+
+        setTimeout(() => {
+            setUploadedItems((prev) => [...items, ...prev]);
+
+            setItems([]);
+
+            setUploadStatus(`Successfully uploaded ${items.length} dataset(s) to the server.`);
+            setIsError(false);
+            toast.success("Upload Complete!", {
+                description: `${items.length} dataset(s) are now live.`,
+            });
+        }, 1000);
+    };
+    const handleDeleteUploaded = (id: string) => {
+        setUploadedItems((prev) => prev.filter((it) => it.id !== id));
+        toast.warning("Dataset Deleted", {
+            description: "The dataset was removed from the live list.",
+        });
+    };
+
+    const DatasetListRow = ({ it, isStaged }: { it: DatasetItem; isStaged: boolean }) => {
+        return (
+            <li
+                key={it.id}
+                className="flex items-center justify-between p-3 transition-colors hover:bg-gray-900"
+            >
+                <div className="flex items-center min-w-0">
+                    {isStaged && (
+                        <Button
+                            variant="ghost"
+                            className="mr-3 h-fit py-2 w-fit hover:bg-gray-800"
+                            onClick={() => handleUploadClick(it.id)}
+                            title="Simulate individual file upload to server"
+                        >
+                            <Upload className="text-yellow-500 size-5" />
+                        </Button>
+                    )}
+                    <FileText className="h-4 w-4 mr-2 flex-shrink-0" />
+                    {editingId === it.id && isStaged ? (
+                        <div className="flex items-center gap-2">
+                            <Input
+                                key={it.id}
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                                className="h-8 w-56"
+                                placeholder="Dataset name"
+                            />
+                            <Button
+                                className="h-9 w-9 p-0"
+                                variant="ghost"
+                                onClick={commitEdit}
+                                aria-label="Save"
+                            >
+                                <Save className="h-4 w-4" />
+                            </Button>
+                            <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={cancelEdit}
+                                aria-label="Cancel"
+                            >
+                                <X className="h-4 w-4" />
+                            </Button>
+                        </div>
+                    ) : (
+                        <div className="flex items-center gap-2 min-w-0">
+                            <span className="truncate font-medium">{it.name}</span>
+                            <span className="text-xs text-muted-foreground flex-shrink-0">
+                                {formatSize(it.size)}
+                            </span>
+                            <span className="text-xs text-muted-foreground truncate hidden sm:block">
+                                • {isStaged ? "Staged" : "Uploaded"}:{" "}
+                                {new Date(it.updatedAt).toLocaleDateString()}
+                            </span>
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex items-center gap-1 flex-shrink-0">
+                    {isStaged && editingId !== it.id && (
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => startEdit(it.id, it.name)}
+                            aria-label="Rename"
+                            title="Rename"
+                        >
+                            <Pencil className="h-4 w-4" />
+                        </Button>
+                    )}
+                    <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() =>
+                            isStaged ? handleDelete(it.id) : handleDeleteUploaded(it.id)
+                        }
+                        aria-label="Delete"
+                        title="Delete"
+                    >
+                        <Trash2 className="h-4 w-4 text-red-600" />
+                    </Button>
+                </div>
+            </li>
+        );
+    };
+
     return (
         <div className="flex w-full h-full border-yellow-600 border p-5">
             <Card className="w-full border-none max-w-3xl mx-auto shadow-lg">
@@ -184,9 +361,9 @@ export default function Dataset() {
                         <AlertTriangle className="h-4 w-4" />
                         <AlertTitle>Heads up</AlertTitle>
                         <AlertDescription>
-                            Files saved here live <strong>only in memory</strong>. If you leave or
-                            refresh this page, they’ll be lost. Ensure you upload desired datasets
-                            to the server before leaving.
+                            Files saved here live <strong>only in memory</strong>. Staged datasets
+                            will be lost if you leave or refresh this page. Click{" "}
+                            <strong>Upload All</strong> to commit them.
                         </AlertDescription>
                     </Alert>
                 </CardHeader>
@@ -238,7 +415,7 @@ export default function Dataset() {
 
                     {selectedFiles.length > 0 && !isSaving && (
                         <div className="space-y-2 p-3 bg-muted rounded-md">
-                            <h3 className="text-sm font-semibold text-gray-700">Ready to Save:</h3>
+                            <h3 className="text-sm font-semibold text-gray-700">Ready to Stage:</h3>
                             <ul className="space-y-1">
                                 {selectedFiles.map((file) => (
                                     <li
@@ -247,111 +424,102 @@ export default function Dataset() {
                                     >
                                         <FileText className="h-4 w-4 mr-2 flex-shrink-0" />
                                         <span>
-                                            {file.name} ({(file.size / 1024).toFixed(1)} KB)
+                                            {file.name} ({formatSize(file.size)})
                                         </span>
                                     </li>
                                 ))}
                             </ul>
                         </div>
                     )}
-
-                    <div className="space-y-2">
-                        <h3 className="text-sm font-semibold text-gray-700">
-                            Stagged Datasets {hasUnsaved ? "(uncommitted data)" : ""}
-                        </h3>
+                    <div className="space-y-3 pt-4">
+                        <div className="flex justify-between items-center">
+                            <h3 className="text-lg font-semibold text-gray-800 flex items-center">
+                                Staged Datasets
+                            </h3>
+                            <Button
+                                onClick={handleFinalUpload}
+                                disabled={items.length === 0}
+                                className="flex items-center space-x-1 bg-green-600 hover:bg-green-700"
+                            >
+                                <Upload className="h-4 w-4" />
+                                <span>Upload All ({items.length})</span>
+                            </Button>
+                        </div>
 
                         {items.length === 0 ? (
-                            <div className="text-sm text-muted-foreground">
-                                Nothing staged yet. Add some JSON files above.
+                            <div className="text-sm text-muted-foreground p-3 border rounded-md">
+                                Nothing staged yet. Add some JSON files above and click{" "}
+                                <strong>Stage</strong>.
                             </div>
                         ) : (
                             <ul className="divide-y rounded-md border">
                                 {items.map((it) => (
-                                    <li
-                                        key={it.id}
-                                        className="flex items-center justify-between p-3"
-                                    >
-                                        <div className="flex items-center min-w-0">
-                                            <Button
-                                                variant="ghost"
-                                                className="mr-3 h-fit py-2 w-fit hover:bg-gray-900"
-                                                onClick={() => handleUploadClick()}
-                                            >
-                                                <Upload className="text-yellow-500 size-5" />
-                                            </Button>
-                                            <FileText className="h-4 w-4 mr-2 flex-shrink-0" />
-                                            {editingId === it.id ? (
-                                                <div className="flex items-center gap-2">
-                                                    <Input
-                                                        value={editValue}
-                                                        onChange={(e) =>
-                                                            setEditValue(e.target.value)
-                                                        }
-                                                        className="h-8 w-56"
-                                                        placeholder="Dataset name"
-                                                    />
-                                                    <Button
-                                                        className="h-9 w-9 p-0"
-                                                        variant="ghost"
-                                                        onClick={commitEdit}
-                                                        aria-label="Save"
-                                                    >
-                                                        <Save className="h-4 w-4" />
-                                                    </Button>
-                                                    <Button
-                                                        size="sm"
-                                                        variant="ghost"
-                                                        onClick={cancelEdit}
-                                                        aria-label="Cancel"
-                                                    >
-                                                        <X className="h-4 w-4" />
-                                                    </Button>
-                                                </div>
-                                            ) : (
-                                                <div className="flex items-center gap-2 min-w-0">
-                                                    <span className="truncate font-medium">
-                                                        {it.name}
-                                                    </span>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {(it.size / 1024).toFixed(1)} KB
-                                                    </span>
-                                                    {it.lastModified ? (
-                                                        <span className="text-xs text-muted-foreground">
-                                                            • modified{" "}
-                                                            {new Date(
-                                                                it.lastModified
-                                                            ).toLocaleString()}
-                                                        </span>
-                                                    ) : null}
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        <div className="flex items-center gap-1">
-                                            {editingId !== it.id && (
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    onClick={() => startEdit(it.id, it.name)}
-                                                    aria-label="Rename"
-                                                    title="Rename"
-                                                >
-                                                    <Pencil className="h-4 w-4" />
-                                                </Button>
-                                            )}
-                                            <Button
-                                                size="sm"
-                                                variant="ghost"
-                                                onClick={() => handleDelete(it.id)}
-                                                aria-label="Delete"
-                                                title="Delete"
-                                            >
-                                                <Trash2 className="h-4 w-4 text-red-600" />
-                                            </Button>
-                                        </div>
-                                    </li>
+                                    <DatasetListRow key={it.id} it={it} isStaged={true} />
                                 ))}
                             </ul>
+                        )}
+                    </div>
+
+                    <hr className="my-6 border-t border-gray-200" />
+
+                    <div className="space-y-2">
+                        <h3 className="text-lg font-semibold text-gray-800 flex items-center">
+                            Uploaded Datasets ({uploadedItems.length})
+                        </h3>
+
+                        {uploadedItems.length === 0 ? (
+                            <div className="text-sm text-muted-foreground p-3 border rounded-md">
+                                No datasets have been uploaded yet. Stage and then{" "}
+                                <strong>Upload All</strong> to see them here.
+                            </div>
+                        ) : (
+                            <div className="rounded-md border">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Dataset Name</TableHead>
+                                            <TableHead className="w-20">Size</TableHead>
+                                            <TableHead className="text-right">Actions</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {uploadedItems.map((it) => (
+                                            <TableRow key={it.id} className="hover:bg-gray-900">
+                                                <TableCell>
+                                                    <div className="flex items-center">
+                                                        <FileText className="h-4 w-4 mr-2 flex-shrink-0" />
+                                                        <span className="truncate font-medium">
+                                                            {it.name}
+                                                        </span>
+                                                    </div>
+                                                </TableCell>
+
+                                                <TableCell className="text-muted-foreground">
+                                                    <div className="flex items-center h-full">
+                                                        {formatSize(it.size)}
+                                                    </div>
+                                                </TableCell>
+
+                                                <TableCell className="text-right">
+                                                    <div className="flex items-center justify-end h-full">
+                                                        <Button
+                                                            size="sm"
+                                                            variant="ghost"
+                                                            onClick={() =>
+                                                                handleDeleteUploaded(it.id)
+                                                            }
+                                                            aria-label="Delete"
+                                                            title="Delete Uploaded Dataset"
+                                                        >
+                                                            <Trash2 className="h-4 w-4 text-red-600" />
+                                                        </Button>
+                                                    </div>
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </div>
                         )}
                     </div>
                 </CardContent>

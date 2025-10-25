@@ -125,7 +125,11 @@ export default function UserPage() {
                             </div>
                         </div>
                         <DialogFooter>
-                            <Button onClick={handleAddUser} type="submit">
+                            <Button
+                                className="bg-yellow-500 text-black"
+                                onClick={handleAddUser}
+                                type="submit"
+                            >
                                 Create User
                             </Button>
                         </DialogFooter>
