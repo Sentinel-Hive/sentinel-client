@@ -25,6 +25,7 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
+import { useDatasets, useDatasetStore } from "@/store/datasetStore";
 
 const formatSize = (sizeInBytes: number) => {
     if (sizeInBytes < 1024) {
@@ -36,44 +37,16 @@ const formatSize = (sizeInBytes: number) => {
     }
 };
 
-const DUMMY_DATA = [
-    {
-        id: "dset_001",
-        name: "evil-data_Q4_2023.json",
-        size: 15485760,
-        lastModified: 1672531200000,
-        content: "json",
-        addedAt: "2024-01-10T10:00:00Z",
-        updatedAt: "2024-01-10T10:00:00Z",
-    },
-    {
-        id: "dset_002",
-        name: "web_traffic_2026.json",
-        size: 256000,
-        lastModified: 1704153600000,
-        content: "json",
-        addedAt: "2024-02-15T14:30:00Z",
-        updatedAt: "2024-02-15T14:30:00Z",
-    },
-    {
-        id: "dset_003",
-        name: "Web_Traffic_Logs_2024.json",
-        size: 4294967296,
-        lastModified: 1711929600000,
-        content: "application/zip",
-        addedAt: "2024-03-20T08:45:00Z",
-        updatedAt: "2024-04-01T11:00:00Z",
-    },
-];
-
 export default function Dataset() {
+    const datasets = useDatasets();
+    const { addDataset, removeDataset } = useDatasetStore();
+
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
     const [uploadStatus, setUploadStatus] = useState<string>("");
     const [isError, setIsError] = useState<boolean>(false);
 
     const [items, setItems] = useState<DatasetItem[]>([]);
-    const [uploadedItems, setUploadedItems] = useState<DatasetItem[]>(DUMMY_DATA);
 
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editValue, setEditValue] = useState<string>("");
@@ -145,19 +118,17 @@ export default function Dataset() {
     const handleUploadClick = (itemId: string) => {
         const itemToMove = items.find((item) => item.id === itemId);
 
-        if (itemToMove) {
-            setItems((prevStaged) => prevStaged.filter((item) => item.id !== itemId));
+        if (!itemToMove) return;
+        setItems((prevStaged) => prevStaged.filter((item) => item.id !== itemId));
 
-            setUploadedItems((prevUploaded) => [
-                ...prevUploaded,
-                {
-                    ...itemToMove,
-                    uploadTime: new Date().toISOString(),
-                },
-            ]);
-
-            // Perform the actual server upload here
-        }
+        addDataset({
+            ...itemToMove,
+            updatedAt: new Date().toISOString(),
+        });
+        toast.success("Uploaded", {
+            description: `"${itemToMove.name}" added to datasets.`,
+        });
+        // Perform the actual server upload here
     };
 
     const handleSaveToMemory = async () => {
@@ -240,25 +211,22 @@ export default function Dataset() {
             setIsError(true);
             return;
         }
-
-        setUploadStatus(`Uploading ${items.length} dataset(s) to server...`);
+        const count = items.length;
+        setUploadStatus(`Uploading ${count} dataset(s) to server...`);
         setIsError(false);
-
         setTimeout(() => {
-            setUploadedItems((prev) => [...items, ...prev]);
-
+            items.forEach((it) => addDataset({ ...it, updatedAt: new Date().toISOString() }));
             setItems([]);
-
-            setUploadStatus(`Successfully uploaded ${items.length} dataset(s) to the server.`);
+            setUploadStatus(`Successfully uploaded ${count} dataset(s) to the server.`);
             setIsError(false);
             toast.success("Upload Complete!", {
-                description: `${items.length} dataset(s) are now live.`,
+                description: `${count} dataset(s) are now live.`,
             });
-        }, 1000);
+        }, 400);
     };
     const handleDeleteUploaded = (id: string) => {
-        setUploadedItems((prev) => prev.filter((it) => it.id !== id));
-        toast.warning("Dataset Deleted", {
+        removeDataset(id);
+        toast.warning(`Dataset ${id} Deleted`, {
             description: "The dataset was removed from the live list.",
         });
     };
@@ -464,10 +432,10 @@ export default function Dataset() {
 
                     <div className="space-y-2">
                         <h3 className="text-lg font-semibold text-gray-800 flex items-center">
-                            Uploaded Datasets ({uploadedItems.length})
+                            Uploaded Datasets ({datasets.length})
                         </h3>
 
-                        {uploadedItems.length === 0 ? (
+                        {datasets.length === 0 ? (
                             <div className="text-sm text-muted-foreground p-3 border rounded-md">
                                 No datasets have been uploaded yet. Stage and then{" "}
                                 <strong>Upload All</strong> to see them here.
@@ -483,7 +451,7 @@ export default function Dataset() {
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {uploadedItems.map((it) => (
+                                        {datasets.map((it) => (
                                             <TableRow key={it.id} className="hover:bg-gray-900">
                                                 <TableCell>
                                                     <div className="flex items-center">

@@ -20,22 +20,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Trash2 } from "lucide-react";
-
-type User = {
-    id: number;
-    username: string;
-    is_admin: boolean;
-    last_login?: Date;
-};
+import { User, useUserList, useUserListStore } from "@/store/userListStore";
+import { toast } from "sonner";
 
 export default function UserPage() {
-    const fakeUsers: User[] = [
-        { id: 0, username: "user0", is_admin: true, last_login: new Date() },
-        { id: 1, username: "user1", is_admin: false, last_login: new Date(Date.now() - 86400000) },
-        { id: 2, username: "user2", is_admin: false }, // No last login
-        { id: 3, username: "user3", is_admin: false, last_login: new Date(Date.now() - 3600000) },
-    ];
-    const [userList, setUserList] = useState<User[]>(fakeUsers);
+    const users = useUserList();
+    const { addUser, removeUser } = useUserListStore();
     const [isAddUserDialogOpen, setIsAddUserDialogOpen] = useState(false);
     const [newUserUsername, setNewUserUsername] = useState("");
     const [newUserIsAdmin, setNewUserIsAdmin] = useState(false);
@@ -51,8 +41,10 @@ export default function UserPage() {
     };
 
     const handleDeleteUser = (userId: number) => {
-        setUserList((prevUsers) => prevUsers.filter((user) => user.id !== userId));
-        console.log(`User ID: ${userId} deleted.`);
+        removeUser(userId);
+        toast.warning(`User ${userId} Deleted`, {
+            description: "The user was removed from the live list.",
+        });
     };
 
     const handleAddUser = () => {
@@ -61,20 +53,18 @@ export default function UserPage() {
             return;
         }
 
+        const nextId = users.length > 0 ? Math.max(...users.map((u) => u.id)) + 1 : 1;
         const newUser: User = {
-            id: userList.length > 0 ? Math.max(...userList.map((u) => u.id)) + 1 : 1,
+            id: nextId,
             username: newUserUsername.trim(),
             is_admin: newUserIsAdmin,
             last_login: undefined,
         };
-
-        setUserList((prevUsers) => [...prevUsers, newUser]);
-
+        addUser(newUser);
         setNewUserUsername("");
         setNewUserIsAdmin(false);
         setIsAddUserDialogOpen(false);
-
-        console.log("Add user handler called with:", newUser);
+        toast.success("User created", { description: newUser.username });
     };
 
     return (
@@ -149,7 +139,7 @@ export default function UserPage() {
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {userList.map((user) => (
+                        {users.map((user) => (
                             <TableRow key={user.id}>
                                 <TableCell className="font-medium">{user.id}</TableCell>
                                 <TableCell>{user.username}</TableCell>
