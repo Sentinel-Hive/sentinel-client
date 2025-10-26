@@ -142,20 +142,27 @@ function attachLogoutOnClose() {
     }
 }
 
+type PopupMessage = { type: "popup"; text: string };
+type ErrorMessage = { type: "error"; detail: string };
+type ServerMessage = PopupMessage | ErrorMessage | AlertType | Record<string, unknown>;
+
 let _websocket: WebSocket | null = null;
 let _websocketUrl: string | null = null;
-const _wsHandlers = new Set<(msg: any) => void>();
-let _wsOpenHandlers = new Set<(open: boolean) => void>();
+
+const _wsHandlers = new Set<(msg: unknown) => void>();
+const _wsOpenHandlers = new Set<(open: boolean) => void>();
 let _wsOpen = false;
 
 function _emitWsOpen(open: boolean) {
     _wsOpen = open;
-    for (const fn of _wsOpenHandlers)
+    for (const fn of _wsOpenHandlers) {
         try {
             fn(open);
         } catch (e) {
+            // no-op: avoid failing other handlers
             console.error(e);
         }
+    }
 }
 
 export function isWebsocketOpen() {
@@ -174,6 +181,14 @@ function makeWebsocketUrl(base: string, token: string) {
     return u.toString();
 }
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+    return typeof v === "object" && v !== null;
+}
+
+function isAlertMessage(v: unknown): v is AlertType {
+    return isRecord(v) && v["type"] === "alert";
+}
+
 export function connectWebsocket() {
     if (!_token) {
         console.warn("[WS] No token — cannot connect");
@@ -185,7 +200,9 @@ export function connectWebsocket() {
 
     try {
         _websocket?.close();
-    } catch {}
+    } catch {
+        // no-op
+    }
 
     const ws = new WebSocket(url);
     _websocket = ws;
@@ -194,38 +211,48 @@ export function connectWebsocket() {
     ws.onopen = () => {
         console.log("[WS] onopen");
         _emitWsOpen(true);
+        // intentionally NOT sending a "hello" message
     };
 
-    ws.onmessage = (ev) => {
+    ws.onmessage = (ev: MessageEvent<string | ArrayBufferLike | Blob>) => {
         console.log("[WS] onmessage raw:", ev.data);
-        let msg: any;
-        try {
-            msg = JSON.parse(ev.data);
-            if (msg && msg.type === "alert") {
-                // Basic runtime shape check; trust server fields
-                const alert = msg as AlertType;
-                try {
-                    addAlert(alert);
-                } catch {}
+
+        let delivered: unknown = ev.data;
+
+        // Parse JSON only if it's a string
+        if (typeof ev.data === "string") {
+            try {
+                const parsed = JSON.parse(ev.data) as ServerMessage;
+                delivered = parsed;
+
+                // auto-ingest alerts into store
+                if (isAlertMessage(parsed)) {
+                    try {
+                        addAlert(parsed);
+                    } catch {
+                        // no-op
+                    }
+                }
+            } catch {
+                // no-op: data wasn't JSON
             }
-        } catch {
-            msg = ev.data;
         }
+
         for (const fn of _wsHandlers) {
             try {
-                fn(msg);
+                fn(delivered);
             } catch (e) {
                 console.error(e);
             }
         }
     };
 
-    ws.onclose = (e) => {
+    ws.onclose = (e: CloseEvent) => {
         console.log("[WS] onclose code=", e.code, "reason=", e.reason);
         _emitWsOpen(false);
     };
 
-    ws.onerror = (e) => {
+    ws.onerror = (e: Event) => {
         console.error("[WS] onerror:", e);
     };
 }
@@ -239,7 +266,7 @@ export function websocketSend(message: unknown) {
     _websocket.send(JSON.stringify(message));
 }
 
-export function onWebsocketMessage(fn: (msg: any) => void) {
+export function onWebsocketMessage(fn: (msg: unknown) => void) {
     _wsHandlers.add(fn);
     return () => _wsHandlers.delete(fn);
 }
@@ -248,7 +275,9 @@ export function closeWebsocket() {
     console.log("[WS] manual close");
     try {
         _websocket?.close();
-    } catch {}
+    } catch {
+        // no-op
+    }
     _emitWsOpen(false);
 }
 

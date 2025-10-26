@@ -21,10 +21,8 @@ const activeClass = "bg-neutral-800";
 export default function Header() {
     const alerts = useAlerts();
 
-    // locally dismissed (notification dropdown only; Alerts page remains intact)
     const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
-    // toast when a new alert arrives
     useEffect(() => {
         const off = onAlertAdded((a) => {
             const sev = (a.severity || "medium").toUpperCase();
@@ -33,10 +31,11 @@ export default function Header() {
                 duration: 2500,
             });
         });
-        return off;
+        return () => {
+            off();
+        };
     }, []);
 
-    // latest 10, excluding dismissed
     const notifications = useMemo(() => {
         return alerts
             .filter((a) => !dismissed.has(a.id))

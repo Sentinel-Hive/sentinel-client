@@ -11,21 +11,26 @@ import {
 import { Popup } from "../components/Popup";
 
 type Severity = "critical" | "high" | "medium" | "low";
+type PopupMsg = { type: "popup"; text?: string };
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+    return typeof v === "object" && v !== null;
+}
+function isPopupMsg(v: unknown): v is PopupMsg {
+    return isRecord(v) && v["type"] === "popup";
+}
 
 export default function Dev() {
     const [wsReady, setWsReady] = useState(isWebsocketOpen());
     const [token, setToken] = useState<string | null>(getToken());
 
-    // --- popup form ---
     const [popupText, setPopupText] = useState("Hello from Dev custom popup");
 
-    // --- alert form ---
     const [title, setTitle] = useState("Test Alert");
     const [severity, setSeverity] = useState<Severity>("high");
     const [description, setDescription] = useState("This is a test alert from Dev page");
     const [tags, setTags] = useState("dev, test");
 
-    // local popup preview
     const [popup, setPopup] = useState<string | null>(null);
 
     useEffect(() => {
@@ -33,15 +38,14 @@ export default function Dev() {
             setWsReady(open);
             setToken(getToken());
         });
-        const offMsg = onWebsocketMessage((msg: any) => {
-            // surface server popups
-            if (msg?.type === "popup") {
+        const offMsg = onWebsocketMessage((msg: unknown) => {
+            if (isPopupMsg(msg)) {
                 setPopup(msg.text ?? JSON.stringify(msg));
             }
         });
         return () => {
-            offOpen?.();
-            offMsg?.();
+            offOpen();
+            offMsg();
         };
     }, []);
 
@@ -56,14 +60,11 @@ export default function Dev() {
             .filter(Boolean);
     }
 
-    // --- senders ---
     function sendTestPopup() {
-        // Goes over WS as dev_popup → routes.py echoes/broadcasts popup
         websocketSend({ type: "dev_popup", text: popupText });
     }
 
     function sendTestAlert() {
-        // Goes over WS as dev_alert → short-circuited to broadcast alert
         websocketSend({
             type: "dev_alert",
             title,
@@ -113,7 +114,6 @@ export default function Dev() {
                 </div>
             </fieldset>
 
-            {/* ---- Custom Alert ---- */}
             <fieldset style={{ border: "1px solid #333", borderRadius: 12, padding: 16 }}>
                 <legend style={{ padding: "0 8px" }}>Send Test Alert</legend>
 

@@ -22,21 +22,21 @@ function emit() {
 }
 
 const newAlertListeners = new Set<(a: Alert) => void>();
-function emitNew(a: Alert) { for (const l of newAlertListeners) l(a); }
+function emitNew(a: Alert) {
+    for (const l of newAlertListeners) l(a);
+}
 
 export function onAlertAdded(fn: (a: Alert) => void) {
-  newAlertListeners.add(fn);
-  return () => newAlertListeners.delete(fn);
+    newAlertListeners.add(fn);
+    return () => newAlertListeners.delete(fn);
 }
 
 export function addAlert(a: Alert) {
-  if (a.id && _alerts.some(x => x.id === a.id)) return;
-  _alerts = [a, ..._alerts].slice(0, 200);
-  emit();    
-  emitNew(a);   
+    if (a.id && _alerts.some((x) => x.id === a.id)) return;
+    _alerts = [a, ..._alerts].slice(0, 200);
+    emit();
+    emitNew(a);
 }
-
-
 
 export function acknowledge(id: string) {
     _alerts = _alerts.map((a) => (a.id === id ? { ...a, acknowledged: true } : a));
