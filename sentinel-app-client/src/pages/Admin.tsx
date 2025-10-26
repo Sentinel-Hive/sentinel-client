@@ -22,10 +22,10 @@ export default function Admin() {
             const persisted = getUserData();
             if (!user && !persisted) {
                 navigate("/analytics");
-            } else if (user && (user as any).token === "") {
+            } else if (user && user.token === "") {
                 navigate("/analytics");
             }
-        } catch (e) {
+        } catch {
             // Fallback: if anything goes wrong, redirect to analytics
             navigate("/analytics");
         }
