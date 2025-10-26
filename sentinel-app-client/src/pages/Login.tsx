@@ -7,6 +7,8 @@ import { Label } from "../components/ui/label";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "../components/ui/card";
 import { login, getBaseURL } from "../lib/session";
 
+import { useUserStore } from "../store/userStore";
+
 export default function Login() {
     const navigate = useNavigate();
 
@@ -71,7 +73,8 @@ export default function Login() {
 
         try {
             setBusy(true);
-            await login({ baseUrl: server, userId: username, password });
+            const res = await login({ baseUrl: server, userId: username, password });
+            useUserStore.getState().setUser(res);
             navigate("/analytics"); // success
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err) || "Login failed";

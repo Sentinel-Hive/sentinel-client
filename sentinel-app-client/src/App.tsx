@@ -4,6 +4,7 @@ import Analytics from "./pages/Analytics";
 import Datasets from "./pages/Datasets";
 import Alerts from "./pages/Alerts";
 import Login from "./pages/Login";
+import Admin from "./pages/Admin";
 import { Toaster } from "sonner";
 
 function App() {
@@ -31,6 +32,7 @@ function App() {
                         path="*"
                         element={<div className="text-sm text-neutral-400">Page not found.</div>}
                     />
+                    <Route path="/admin" element={<Admin />} />
                 </Routes>
             </main>
         </div>

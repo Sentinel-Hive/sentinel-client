@@ -1,7 +1,10 @@
+import { UserData } from "@/types/types";
+
 let _baseURL =
     (typeof localStorage !== "undefined" && localStorage.getItem("svh.baseUrl")) ||
     "http://127.0.0.1:8000";
 let _token: string | null = null;
+let userData: UserData | null = null;
 
 function normalizeBaseURL(input: string): string {
     let s = (input || "").trim();
@@ -29,6 +32,10 @@ export function getToken() {
 
 export function isAuthenticated() {
     return !!_token;
+}
+
+export function getUserData() {
+    return userData;
 }
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -73,8 +80,6 @@ export async function ping(): Promise<boolean> {
     }
 }
 
-type LoginResult = { token: string };
-
 export async function login(opts: {
     baseUrl: string;
     userId: string;
@@ -82,7 +87,7 @@ export async function login(opts: {
     ttl?: number;
 }) {
     setBaseURL(opts.baseUrl);
-    const out = await jsonFetch<LoginResult>("/auth/login", {
+    const res = await jsonFetch<UserData>("/auth/login", {
         method: "POST",
         body: JSON.stringify({
             user_id: opts.userId,
@@ -90,23 +95,33 @@ export async function login(opts: {
             ttl: opts.ttl ?? 3600,
         }),
     });
-    _token = out.token;
+    _token = res.token;
+    userData = res;
     attachLogoutOnClose();
-    return out;
+    return res;
 }
 
 export async function logout() {
-    if (!_token) return;
+    if (!_token || !userData) return;
     try {
-        await jsonFetch<{ ok: boolean }>("/auth/logout", {
+        const res = await jsonFetch<{ ok: boolean }>("/auth/logout", {
             method: "POST",
-            body: JSON.stringify({ token: _token }),
+            body: JSON.stringify({ user_id: userData.user_id, token: _token }),
         });
-    } catch {
+        if (!res.ok) {
+            throw new Error("Server errored while logging out.");
+        } else {
+            _token = null;
+            userData = null;
+        }
+    } catch (e) {
         // ignore network errors on best-effort logout
-    } finally {
         _token = null;
+        userData = null;
+        console.error(e);
+        return { response: false };
     }
+    return { response: true };
 }
 
 let _closeHookAttached = false;
