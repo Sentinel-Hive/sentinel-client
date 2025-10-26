@@ -1,21 +1,85 @@
 import AlertCard from "../components/AlertCard";
-import { useAlerts } from "../lib/alertsStore";
+import { useAlerts, acknowledge } from "../lib/alertsStore"; // ← import acknowledge
+import { useMemo, useState } from "react";
+
+type Severity = "critical" | "high" | "medium" | "low";
+const SEV_ORDER: Record<Severity, number> = {
+    critical: 0,
+    high: 1,
+    medium: 2,
+    low: 3,
+};
 
 export default function Alerts() {
     const alerts = useAlerts(); // live
+    const [showAcknowledged, setShowAcknowledged] = useState(false);
+    const [sortBy, setSortBy] = useState<"recent" | "severity">("recent");
+
+    const view = useMemo(() => {
+        let list = alerts;
+
+        if (!showAcknowledged) {
+            list = list.filter((a) => !a.acknowledged);
+        }
+
+        if (sortBy === "recent") {
+            list = [...list].sort(
+                (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            );
+        } else {
+            list = [...list].sort((a, b) => {
+                const sev = SEV_ORDER[a.severity as Severity] - SEV_ORDER[b.severity as Severity];
+                if (sev !== 0) return sev;
+                return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+            });
+        }
+
+        return list;
+    }, [alerts, showAcknowledged, sortBy]);
 
     return (
         <div className="mx-auto max-w-5xl p-6 space-y-6">
             <header className="flex items-end justify-between">
                 <h2 className="text-2xl font-semibold tracking-tight">Alerts</h2>
-                <div className="text-sm text-white/60">{alerts.length} total</div>
+
+                {/* Controls */}
+                <div className="flex items-center gap-3 text-sm">
+                    <label className="flex items-center gap-2 text-white/80">
+                        <input
+                            type="checkbox"
+                            checked={showAcknowledged}
+                            onChange={(e) => setShowAcknowledged(e.target.checked)}
+                        />
+                        Show acknowledged
+                    </label>
+
+                    <label className="flex items-center gap-2 text-white/80">
+                        Sort:
+                        <select
+                            value={sortBy}
+                            onChange={(e) => setSortBy(e.target.value as "recent" | "severity")}
+                            className="rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-white/90"
+                        >
+                            <option value="recent">Most recent</option>
+                            <option value="severity">Severity</option>
+                        </select>
+                    </label>
+
+                    <div className="text-white/60">{view.length} shown</div>
+                </div>
             </header>
 
-            {alerts.length === 0 ? (
-                <div className="text-white/70">No alerts yet.</div>
+            {view.length === 0 ? (
+                <div className="text-white/70">
+                    {alerts.length === 0
+                        ? "No alerts yet."
+                        : showAcknowledged
+                          ? "No alerts (all acknowledged)."
+                          : "No unacknowledged alerts."}
+                </div>
             ) : (
                 <div className="grid gap-4">
-                    {alerts.map((a) => (
+                    {view.map((a) => (
                         <AlertCard
                             key={a.id}
                             id={a.id}
@@ -27,8 +91,7 @@ export default function Alerts() {
                             tags={a.tags}
                             acknowledged={a.acknowledged}
                             onAcknowledge={(id) => {
-                                // optional: update store; server-side ack can come later
-                                // import { acknowledge } from "../lib/alertsStore" if you want
+                                if (id) acknowledge(id);
                             }}
                         />
                     ))}

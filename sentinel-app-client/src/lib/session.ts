@@ -194,12 +194,6 @@ export function connectWebsocket() {
     ws.onopen = () => {
         console.log("[WS] onopen");
         _emitWsOpen(true);
-        try {
-            ws.send(JSON.stringify({ type: "hello", client: "sentinel-client" }));
-            console.log("[WS] sent hello");
-        } catch (e) {
-            console.error("[WS] send hello failed:", e);
-        }
     };
 
     ws.onmessage = (ev) => {

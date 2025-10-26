@@ -1,4 +1,5 @@
 // src/components/Header.tsx
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, NavLink } from "react-router-dom";
 import {
     RotateCw,
@@ -9,29 +10,47 @@ import {
     LogOut,
     Info,
 } from "lucide-react";
-import { toast } from "sonner";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { toast } from "sonner";
 import AlertNotification, { Severity } from "./AlertNotification";
-import { useAlerts } from "../lib/alertsStore";
+import { useAlerts, onAlertAdded } from "../lib/alertsStore";
 
 const navLinkClass = "px-3 py-2 rounded-xl text-sm font-medium transition hover:bg-neutral-800/60";
 const activeClass = "bg-neutral-800";
 
-type Notification = {
-    id: string;
-    severity: Severity;
-    timestamp: string;
-    description: string;
-};
-
 export default function Header() {
     const alerts = useAlerts();
-    const notifications = alerts.slice(0, 10).map((a) => ({
-        id: a.id,
-        severity: a.severity as Severity,
-        timestamp: a.timestamp,
-        description: a.description || a.title,
-    }));
+
+    // locally dismissed (notification dropdown only; Alerts page remains intact)
+    const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+
+    // toast when a new alert arrives
+    useEffect(() => {
+        const off = onAlertAdded((a) => {
+            const sev = (a.severity || "medium").toUpperCase();
+            toast(`${sev}: ${a.title}`, {
+                description: a.description,
+                duration: 2500,
+            });
+        });
+        return off;
+    }, []);
+
+    // latest 10, excluding dismissed
+    const notifications = useMemo(() => {
+        return alerts
+            .filter((a) => !dismissed.has(a.id))
+            .slice(0, 10)
+            .map((a) => ({
+                id: a.id,
+                severity: a.severity as Severity,
+                timestamp: a.timestamp,
+                description: a.description || a.title,
+            }));
+    }, [alerts, dismissed]);
+
+    const clearAll = () => setDismissed(new Set(alerts.map((a) => a.id)));
+    const dismissOne = (id: string) => setDismissed((prev) => new Set([...prev, id]));
 
     const user: { id: string; name: string } | null = { id: "u1", name: "Ada" };
     const navigate = useNavigate();
@@ -138,6 +157,7 @@ export default function Header() {
                                                         severity={n.severity}
                                                         timestamp={n.timestamp}
                                                         description={n.description}
+                                                        onDismiss={() => dismissOne(n.id)} // per-item dismiss
                                                     />
                                                 </div>
                                             </DropdownMenu.Item>
@@ -146,12 +166,24 @@ export default function Header() {
                                 )}
 
                                 <DropdownMenu.Separator className="my-1 h-px bg-neutral-800" />
-                                <DropdownMenu.Item
-                                    onSelect={() => navigate("/alerts")}
-                                    className="flex cursor-pointer select-none items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800"
-                                >
-                                    View all alerts
-                                </DropdownMenu.Item>
+                                <div className="flex items-center justify-between gap-2 px-2 pb-1">
+                                    <DropdownMenu.Item
+                                        onSelect={(e) => {
+                                            e.preventDefault();
+                                            clearAll(); // Clear all notifications (local)
+                                        }}
+                                        className="flex cursor-pointer select-none items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800"
+                                    >
+                                        Clear all
+                                    </DropdownMenu.Item>
+
+                                    <DropdownMenu.Item
+                                        onSelect={() => navigate("/alerts")}
+                                        className="flex cursor-pointer select-none items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800"
+                                    >
+                                        View all alerts
+                                    </DropdownMenu.Item>
+                                </div>
                             </DropdownMenu.Content>
                         </DropdownMenu.Portal>
                     </DropdownMenu.Root>

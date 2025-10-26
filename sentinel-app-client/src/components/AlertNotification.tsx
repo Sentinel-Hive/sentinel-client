@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { X } from "lucide-react";
 
 export type Severity = "critical" | "high" | "medium" | "low";
 
@@ -7,21 +8,36 @@ type Props = {
     severity: Severity;
     timestamp: string | Date;
     description?: string;
+    onDismiss?: () => void;
 };
 
-export default function AlertNotification({ severity, timestamp, description }: Props) {
+export default function AlertNotification({ severity, timestamp, description, onDismiss }: Props) {
     const since = useMemo(() => formatSince(timestamp), [timestamp]);
 
     return (
         <div
-            className="w-full rounded-lg px-3 py-2 hover:bg-neutral-800/60
-                 text-left transition"
+            className="w-full rounded-lg px-3 py-2 hover:bg-neutral-800/60 text-left transition"
             role="button"
             tabIndex={0}
         >
             <div className="flex items-center justify-between gap-3">
-                <SeverityPill level={severity} />
-                <span className="shrink-0 text-xs text-white/60">{since}</span>
+                <div className="flex items-center gap-2">
+                    <SeverityPill level={severity} />
+                    <span className="shrink-0 text-xs text-white/60">{since}</span>
+                </div>
+
+                {onDismiss && (
+                    <button
+                        aria-label="Dismiss notification"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onDismiss();
+                        }}
+                        className="rounded p-1 hover:bg-neutral-800/70 text-white/70"
+                    >
+                        <X className="h-3.5 w-3.5" />
+                    </button>
+                )}
             </div>
 
             {description && (

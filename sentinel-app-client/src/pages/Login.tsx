@@ -72,8 +72,8 @@ export default function Login() {
         try {
             setBusy(true);
             await login({ baseUrl: server, userId: username, password });
-            connectWebsocket();
             navigate("/analytics"); // success
+            connectWebsocket();
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err) || "Login failed";
             setError(msg);

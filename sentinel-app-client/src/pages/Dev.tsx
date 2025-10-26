@@ -90,7 +90,6 @@ export default function Dev() {
                 </button>
             </div>
 
-            {/* ---- Custom Popup ---- */}
             <fieldset style={{ border: "1px solid #333", borderRadius: 12, padding: 16 }}>
                 <legend style={{ padding: "0 8px" }}>Send Test Popup</legend>
                 <label style={{ display: "grid", gap: 4 }}>
