@@ -1,10 +1,80 @@
 import { addAlert, Alert as AlertType } from "./alertsStore";
+import { UserData } from "@/types/types";
 
 let _baseURL =
     (typeof localStorage !== "undefined" && localStorage.getItem("svh.baseUrl")) ||
     "http://127.0.0.1:5167";
 let _token: string | null = null;
+let userData: UserData | null = null;
 
+// Try to restore persisted session from localStorage so refreshing the page
+// doesn't log the user out. Keys: svh.token, svh.user
+if (typeof localStorage !== "undefined") {
+    try {
+        const saved = localStorage.getItem("svh.token");
+        if (saved) _token = saved;
+
+        const u = localStorage.getItem("svh.user");
+        if (u) {
+            userData = JSON.parse(u) as UserData;
+            // If token wasn't stored separately, try to recover it from the saved user object
+            if ((!_token || _token === "") && userData?.token) {
+                _token = userData.token;
+            }
+        }
+    } catch (e) {
+        // ignore parse errors and continue with empty session
+        _token = null;
+        userData = null;
+    }
+}
+
+function loadSessionFromStorage() {
+    if (typeof localStorage === "undefined") return;
+    try {
+        // restore base URL too if present
+        if (!_baseURL) {
+            const savedBase = localStorage.getItem("svh.baseUrl");
+            if (savedBase) _baseURL = savedBase;
+        }
+        if (!_token) {
+            const saved = localStorage.getItem("svh.token");
+            if (saved) _token = saved;
+        }
+        if (!userData) {
+            const u = localStorage.getItem("svh.user");
+            if (u) {
+                userData = JSON.parse(u) as UserData;
+                if ((!_token || _token === "") && userData?.token) {
+                    _token = userData.token;
+                }
+            }
+        }
+    } catch {
+        _token = null;
+        userData = null;
+    }
+}
+
+/**
+ * Restore session values (token, userData, baseURL) into module memory from
+ * localStorage. Returns the restored userData (or null).
+ */
+export function restoreSession(): UserData | null {
+    loadSessionFromStorage();
+    return userData;
+}
+
+function clearSessionStorage() {
+    try {
+        if (typeof localStorage !== "undefined") {
+            localStorage.removeItem("svh.token");
+            localStorage.removeItem("svh.user");
+        }
+    } catch {
+        // ignore
+    }
+}
 function normalizeBaseURL(input: string): string {
     let s = (input || "").trim();
     if (!s) throw new Error("Server address is required");
@@ -26,11 +96,18 @@ export function getBaseURL() {
 }
 
 export function getToken() {
+    if (!_token) loadSessionFromStorage();
     return _token;
 }
 
 export function isAuthenticated() {
+    if (!_token) loadSessionFromStorage();
     return !!_token;
+}
+
+export function getUserData() {
+    if (!userData) loadSessionFromStorage();
+    return userData;
 }
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -60,9 +137,39 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 export async function authFetch(path: string, init?: RequestInit): Promise<Response> {
     const headers = new Headers(init?.headers || {});
+    // make sure in-memory session and base URL are loaded before making request
+    loadSessionFromStorage();
+    // if token still missing, try reading directly from localStorage
+    try {
+        if ((!_token || _token === "") && typeof localStorage !== "undefined") {
+            const saved = localStorage.getItem("svh.token");
+            if (saved) _token = saved;
+            else {
+                const u = localStorage.getItem("svh.user");
+                if (u) {
+                    try {
+                        const parsed = JSON.parse(u) as UserData;
+                        if (parsed?.token) _token = parsed.token;
+                    } catch {
+                        // ignore
+                    }
+                }
+            }
+        }
+    } catch {
+        // ignore storage errors
+    }
+
     if (_token) headers.set("Authorization", `Bearer ${_token}`);
+
+    // (debug logging removed)
+
     const res = await fetch(_baseURL + path, { ...init, headers });
-    if (res.status === 401) _token = null; // drop invalid token
+    if (res.status === 401) {
+        // drop invalid token so future calls don't reuse it
+        _token = null;
+        clearSessionStorage();
+    }
     return res;
 }
 
@@ -75,8 +182,6 @@ export async function ping(): Promise<boolean> {
     }
 }
 
-type LoginResult = { token: string };
-
 export async function login(opts: {
     baseUrl: string;
     userId: string;
@@ -84,7 +189,7 @@ export async function login(opts: {
     ttl?: number;
 }) {
     setBaseURL(opts.baseUrl);
-    const out = await jsonFetch<LoginResult>("/auth/login", {
+    const res = await jsonFetch<UserData>("/auth/login", {
         method: "POST",
         body: JSON.stringify({
             user_id: opts.userId,
@@ -92,23 +197,61 @@ export async function login(opts: {
             ttl: opts.ttl ?? 3600,
         }),
     });
-    _token = out.token;
+    _token = res.token;
+    userData = res;
+    try {
+        if (typeof localStorage !== "undefined") {
+            // Only persist a non-empty token. Some responses may omit a token
+            // (or include an empty string); don't store empty tokens as that
+            // later appears as a falsy value and confuses restore logic.
+            if (_token) {
+                localStorage.setItem("svh.token", _token);
+            } else {
+                localStorage.removeItem("svh.token");
+            }
+            localStorage.setItem("svh.user", JSON.stringify(userData));
+        }
+    } catch {
+        // ignore storage errors
+    }
     attachLogoutOnClose();
-    return out;
+    return res;
 }
 
 export async function logout() {
-    if (!_token) return;
+    // Load persisted session if needed
+    if (!_token || !userData) {
+        loadSessionFromStorage();
+    }
+
+    // Optimistically clear local and in-memory session so the UI and other
+    // modules don't rehydrate the session during logout. We will still
+    // attempt to notify the server, but treat logout as successful locally
+    // regardless of the network result.
+    const tokenToSend = _token;
+    const userToSend = userData;
+
+    _token = null;
+    userData = null;
+    clearSessionStorage();
+
+    if (!tokenToSend || !userToSend) {
+        // Nothing to send to server; succeed locally
+        return { response: true };
+    }
+
     try {
+        // best-effort notify server; don't fail the logout locally if this errors
         await jsonFetch<{ ok: boolean }>("/auth/logout", {
             method: "POST",
-            body: JSON.stringify({ token: _token }),
+            body: JSON.stringify({ user_id: userToSend.user_id, token: tokenToSend }),
         });
-    } catch {
-        // ignore network errors on best-effort logout
-    } finally {
-        _token = null;
+    } catch (e) {
+        // ignore network errors — logout already cleared locally
+        console.error("logout: server notification failed", e);
     }
+
+    return { response: true };
 }
 
 let _closeHookAttached = false;
@@ -118,27 +261,32 @@ function attachLogoutOnClose() {
 
     // Tauri close hook (optional)
 
-    // @ts-expect-error Optional Tauri window API: not present in web builds TODO: Kaliegh tell me if this is wrong.
-    import("@tauri-apps/api/window").then(({ appWindow }) => {
-        appWindow.onCloseRequested(async () => {
-            await logout();
+    // Optional Tauri window API: not present in web builds. Guard access to avoid
+    // throwing when the module or `appWindow` is not available.
+    import("@tauri-apps/api/window")
+        .then((mod) => {
+            try {
+                const appWindow = (mod as any)?.appWindow;
+                if (appWindow && typeof appWindow.onCloseRequested === "function") {
+                    appWindow.onCloseRequested(async () => {
+                        await logout();
+                    });
+                }
+            } catch {
+                // ignore runtime errors from optional API
+            }
+        })
+        .catch(() => {
+            // ignore failure to import the optional module
         });
-    });
 
     // Browser/webview fallback
     if (typeof window !== "undefined") {
-        window.addEventListener("beforeunload", () => {
-            if (!_token) return;
-
-            fetch(_baseURL + "/auth/logout", {
-                method: "POST",
-                keepalive: true,
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ token: _token }),
-            });
-
-            _token = null;
-        });
+        // Do not automatically logout or clear persisted session on page unload.
+        // Previously we attempted to POST /auth/logout and clear localStorage here
+        // which caused the token to be removed on simple page refreshes. That
+        // behavior is undesirable for browser reloads. Keep the hook no-op for
+        // web builds. Explicit logout should be performed via the UI.
     }
 }
 

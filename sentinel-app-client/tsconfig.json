@@ -12,6 +12,7 @@
         "esModuleInterop": true,
         "resolveJsonModule": true,
         "isolatedModules": true,
+        "types": ["node"],
         "baseUrl": ".",
         "paths": {
             "@/*": ["src/*"]

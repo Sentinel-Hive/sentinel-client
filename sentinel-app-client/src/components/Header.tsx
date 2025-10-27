@@ -6,7 +6,7 @@ import {
     Bell,
     CircleUserRound,
     User as UserIcon,
-    LogIn,
+    Settings,
     LogOut,
     Info,
 } from "lucide-react";
@@ -14,6 +14,8 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { toast } from "sonner";
 import AlertNotification, { Severity } from "./AlertNotification";
 import { useAlerts, onAlertAdded } from "../lib/alertsStore";
+import { useUser, useUserStore } from "../store/userStore";
+import { logout } from "../lib/session";
 
 const navLinkClass = "px-3 py-2 rounded-xl text-sm font-medium transition hover:bg-neutral-800/60";
 const activeClass = "bg-neutral-800";
@@ -51,16 +53,39 @@ export default function Header() {
     const clearAll = () => setDismissed(new Set(alerts.map((a) => a.id)));
     const dismissOne = (id: string) => setDismissed((prev) => new Set([...prev, id]));
 
-    const user: { id: string; name: string } | null = { id: "u1", name: "Ada" };
+    const user = useUser();
     const navigate = useNavigate();
-    const notImplemented = () => toast.info("This is not implemented yet");
+    const setLoggingOut = useUserStore((s) => s.setLoggingOut);
+    const setJustLoggedOut = useUserStore((s) => s.setJustLoggedOut);
+
     const handleAccountClick = () => toast.info("Open Account settings (stub)");
-    const handleLogoutClick = () => {
-        toast.success("Logged out");
-        navigate("/login");
+
+    const handleLogoutClick = async () => {
+        setLoggingOut(true);
+        setJustLoggedOut(true);
+        try {
+            const res = await logout();
+            if (res?.response) {
+                toast.success("Logged out");
+            } else {
+                throw new Error("An error occurred while logging out.");
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            useUserStore.getState().clearUser();
+            navigate("/login");
+            setLoggingOut(false);
+            // keep justLoggedOut true briefly to allow other components to avoid
+            // redirect races; it will be cleared after a short timeout
+            setTimeout(() => setJustLoggedOut(false), 800);
+        }
     };
+
     const handleHelpClick = () => toast.info("Open Help (stub)");
-    const handleLoginClick = () => toast.info("Open Login dialog (stub)");
+    const handleAdminSettingsClick = () => {
+        navigate("/admin");
+    };
 
     return (
         <header className="sticky top-0 z-10 border-b border-neutral-800 bg-neutral-900/80 backdrop-blur">
@@ -105,7 +130,7 @@ export default function Header() {
                 <div className="flex items-center gap-2">
                     <button
                         type="button"
-                        onClick={notImplemented}
+                        onClick={() => toast.info("This is not implemented yet")}
                         aria-label="Refresh"
                         className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800/60 focus:outline-none focus:ring-2 focus:ring-neutral-700"
                     >
@@ -195,7 +220,7 @@ export default function Header() {
                                 className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800/60 focus:outline-none focus:ring-2 focus:ring-neutral-700"
                             >
                                 <CircleUserRound className="h-5 w-5" />
-                                <span className="hidden sm:inline">Profile</span>
+                                <span className="hidden sm:inline">{user?.user_id}</span>
                             </button>
                         </DropdownMenu.Trigger>
                         <DropdownMenu.Portal>
@@ -204,44 +229,38 @@ export default function Header() {
                                 sideOffset={16}
                                 className="z-50 min-w-44 rounded-xl border border-neutral-800 bg-neutral-900 p-1 text-neutral-200 shadow-lg outline-none"
                             >
-                                {user ? (
-                                    <>
-                                        <DropdownMenu.Item
-                                            onSelect={(e) => {
-                                                e.preventDefault();
-                                                handleAccountClick();
-                                            }}
-                                            className="flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800"
-                                        >
-                                            <UserIcon className="h-4 w-4" /> Account
-                                        </DropdownMenu.Item>
-                                        <DropdownMenu.Item
-                                            onSelect={(e) => {
-                                                e.preventDefault();
-                                                handleLogoutClick();
-                                            }}
-                                            className="flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800"
-                                        >
-                                            <LogOut className="h-4 w-4 text-red-500" />
-                                            <span className="text-red-500">Log Out</span>
-                                        </DropdownMenu.Item>
-                                        <DropdownMenu.Separator className="my-1 h-px bg-neutral-800" />
-                                    </>
-                                ) : (
-                                    <>
-                                        <DropdownMenu.Item
-                                            onSelect={(e) => {
-                                                e.preventDefault();
-                                                handleLoginClick();
-                                            }}
-                                            className="flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800"
-                                        >
-                                            <LogIn className="h-4 w-4 text-green-500" />
-                                            <span className="text-green-500">Log In</span>
-                                        </DropdownMenu.Item>
-                                        <DropdownMenu.Separator className="my-1 h-px bg-neutral-800" />
-                                    </>
+                                {user?.is_admin && (
+                                    <DropdownMenu.Item
+                                        onSelect={(e) => {
+                                            e.preventDefault();
+                                            handleAdminSettingsClick();
+                                        }}
+                                        className="flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800"
+                                    >
+                                        <Settings className="h-4 w-4" />
+                                        Admin Settings
+                                    </DropdownMenu.Item>
                                 )}
+                                <DropdownMenu.Item
+                                    onSelect={(e) => {
+                                        e.preventDefault();
+                                        handleAccountClick();
+                                    }}
+                                    className="flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800"
+                                >
+                                    <UserIcon className="h-4 w-4" /> Account
+                                </DropdownMenu.Item>
+                                <DropdownMenu.Item
+                                    onSelect={(e) => {
+                                        e.preventDefault();
+                                        handleLogoutClick();
+                                    }}
+                                    className="flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800"
+                                >
+                                    <LogOut className="h-4 w-4 text-red-500" />
+                                    <span className="text-red-500">Log Out</span>
+                                </DropdownMenu.Item>
+                                <DropdownMenu.Separator className="my-1 h-px bg-neutral-800" />
 
                                 <DropdownMenu.Item
                                     onSelect={(e) => {

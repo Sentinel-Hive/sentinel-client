@@ -15,6 +15,16 @@ export type Log = {
     timestamp?: string;
 };
 
+export type DatasetItem = {
+    id: string;
+    name: string;
+    size: number;
+    lastModified?: number;
+    content: string;
+    addedAt: string;
+    updatedAt: string;
+};
+
 export type RawLog = {
     _raw?: string;
     id?: number;
@@ -36,3 +46,12 @@ export type RawLog = {
     host?: string;
     [key: string]: unknown;
 };
+
+export interface UserData {
+    id: number;
+    token?: string;
+    username?: string;
+    user_id?: string;
+    is_admin: boolean;
+    last_login?: string | null;
+}
