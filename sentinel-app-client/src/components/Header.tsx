@@ -1,4 +1,5 @@
 // src/components/Header.tsx
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, NavLink } from "react-router-dom";
 import {
     RotateCw,
@@ -9,44 +10,48 @@ import {
     LogOut,
     Info,
 } from "lucide-react";
-import { toast } from "sonner";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { toast } from "sonner";
 import AlertNotification, { Severity } from "./AlertNotification";
+import { useAlerts, onAlertAdded } from "../lib/alertsStore";
 import { useUser, useUserStore } from "../store/userStore";
 import { logout } from "../lib/session";
 
 const navLinkClass = "px-3 py-2 rounded-xl text-sm font-medium transition hover:bg-neutral-800/60";
 const activeClass = "bg-neutral-800";
 
-type Notification = {
-    id: string;
-    severity: Severity;
-    timestamp: string;
-    description: string;
-};
-
 export default function Header() {
-    // example notifications
-    const notifications: Notification[] = [
-        {
-            id: "n1",
-            severity: "high",
-            timestamp: new Date(Date.now() - 7 * 60 * 1000).toISOString(), // 7m ago
-            description: "High latency detected in api-gateway (p95 > 1.2s).",
-        },
-        {
-            id: "n2",
-            severity: "critical",
-            timestamp: new Date(Date.now() - 65 * 60 * 1000).toISOString(), // 65m ago
-            description: "Error spike: 5xx > 4% in us-east-1. Auto-mitigation paused.",
-        },
-        {
-            id: "n3",
-            severity: "medium",
-            timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(), // 5h ago
-            description: "Disk usage warning on log-storage-03 (78%).",
-        },
-    ];
+    const alerts = useAlerts();
+
+    const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+
+    useEffect(() => {
+        const off = onAlertAdded((a) => {
+            const sev = (a.severity || "medium").toUpperCase();
+            toast(`${sev}: ${a.title}`, {
+                description: a.description,
+                duration: 2500,
+            });
+        });
+        return () => {
+            off();
+        };
+    }, []);
+
+    const notifications = useMemo(() => {
+        return alerts
+            .filter((a) => !dismissed.has(a.id))
+            .slice(0, 10)
+            .map((a) => ({
+                id: a.id,
+                severity: a.severity as Severity,
+                timestamp: a.timestamp,
+                description: a.description || a.title,
+            }));
+    }, [alerts, dismissed]);
+
+    const clearAll = () => setDismissed(new Set(alerts.map((a) => a.id)));
+    const dismissOne = (id: string) => setDismissed((prev) => new Set([...prev, id]));
 
     const user = useUser();
     const navigate = useNavigate();
@@ -111,6 +116,16 @@ export default function Header() {
                     >
                         Alerts
                     </NavLink>
+                    {user?.is_admin && (
+                        <NavLink
+                            to="/socket"
+                            className={({ isActive }) =>
+                                `${navLinkClass} ${isActive ? activeClass : ""}`
+                            }
+                        >
+                            Socket
+                        </NavLink>
+                    )}
                 </nav>
 
                 {/* Right: actions */}
@@ -168,6 +183,7 @@ export default function Header() {
                                                         severity={n.severity}
                                                         timestamp={n.timestamp}
                                                         description={n.description}
+                                                        onDismiss={() => dismissOne(n.id)} // per-item dismiss
                                                     />
                                                 </div>
                                             </DropdownMenu.Item>
@@ -176,12 +192,24 @@ export default function Header() {
                                 )}
 
                                 <DropdownMenu.Separator className="my-1 h-px bg-neutral-800" />
-                                <DropdownMenu.Item
-                                    onSelect={() => navigate("/alerts")}
-                                    className="flex cursor-pointer select-none items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800"
-                                >
-                                    View all alerts
-                                </DropdownMenu.Item>
+                                <div className="flex items-center justify-between gap-2 px-2 pb-1">
+                                    <DropdownMenu.Item
+                                        onSelect={(e) => {
+                                            e.preventDefault();
+                                            clearAll(); // Clear all notifications (local)
+                                        }}
+                                        className="flex cursor-pointer select-none items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800"
+                                    >
+                                        Clear all
+                                    </DropdownMenu.Item>
+
+                                    <DropdownMenu.Item
+                                        onSelect={() => navigate("/alerts")}
+                                        className="flex cursor-pointer select-none items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800"
+                                    >
+                                        View all alerts
+                                    </DropdownMenu.Item>
+                                </div>
                             </DropdownMenu.Content>
                         </DropdownMenu.Portal>
                     </DropdownMenu.Root>

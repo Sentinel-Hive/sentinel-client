@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 
 type Severity = "critical" | "high" | "medium" | "low";
 
@@ -26,6 +26,10 @@ export default function AlertCard({
     onAcknowledge,
 }: Props) {
     const [ack, setAck] = useState(acknowledgedProp);
+
+    useEffect(() => {
+        setAck(acknowledgedProp);
+    }, [acknowledgedProp]);
 
     const when = useMemo(() => {
         const d = typeof timestamp === "string" ? new Date(timestamp) : timestamp;
