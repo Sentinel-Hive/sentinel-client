@@ -116,14 +116,16 @@ export default function Header() {
                     >
                         Alerts
                     </NavLink>
-                    <NavLink
-                        to="/dev"
-                        className={({ isActive }) =>
-                            `${navLinkClass} ${isActive ? activeClass : ""}`
-                        }
-                    >
-                        Dev
-                    </NavLink>
+                    {user?.is_admin && (
+                        <NavLink
+                            to="/socket"
+                            className={({ isActive }) =>
+                                `${navLinkClass} ${isActive ? activeClass : ""}`
+                            }
+                        >
+                            Socket
+                        </NavLink>
+                    )}
                 </nav>
 
                 {/* Right: actions */}

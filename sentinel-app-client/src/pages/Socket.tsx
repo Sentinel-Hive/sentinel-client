@@ -9,6 +9,7 @@ import {
     getToken,
 } from "../lib/session";
 import { Popup } from "../components/Popup";
+import { useUser } from "@/store/userStore";
 
 type Severity = "critical" | "high" | "medium" | "low";
 type PopupMsg = { type: "popup"; text?: string };
@@ -20,7 +21,8 @@ function isPopupMsg(v: unknown): v is PopupMsg {
     return isRecord(v) && v["type"] === "popup";
 }
 
-export default function Dev() {
+export default function Socket() {
+    const user = useUser();
     const [wsReady, setWsReady] = useState(isWebsocketOpen());
     const [token, setToken] = useState<string | null>(getToken());
 
@@ -75,9 +77,11 @@ export default function Dev() {
         });
     }
 
+    if (!user?.is_admin) return null;
+
     return (
         <div style={{ padding: 16, display: "grid", gap: 16, maxWidth: 720 }}>
-            <h1>Dev</h1>
+            <h1 className="text-2xl font-bold">Socket</h1>
 
             <div style={{ fontSize: 12 }}>
                 Websocket:{" "}
