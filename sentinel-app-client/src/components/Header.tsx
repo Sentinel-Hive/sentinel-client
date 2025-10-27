@@ -50,10 +50,14 @@ export default function Header() {
 
     const user = useUser();
     const navigate = useNavigate();
+    const setLoggingOut = useUserStore((s) => s.setLoggingOut);
+    const setJustLoggedOut = useUserStore((s) => s.setJustLoggedOut);
 
     const handleAccountClick = () => toast.info("Open Account settings (stub)");
 
     const handleLogoutClick = async () => {
+        setLoggingOut(true);
+        setJustLoggedOut(true);
         try {
             const res = await logout();
             if (res?.response) {
@@ -66,6 +70,10 @@ export default function Header() {
         } finally {
             useUserStore.getState().clearUser();
             navigate("/login");
+            setLoggingOut(false);
+            // keep justLoggedOut true briefly to allow other components to avoid
+            // redirect races; it will be cleared after a short timeout
+            setTimeout(() => setJustLoggedOut(false), 800);
         }
     };
 

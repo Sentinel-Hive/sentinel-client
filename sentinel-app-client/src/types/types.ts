@@ -48,7 +48,10 @@ export type RawLog = {
 };
 
 export interface UserData {
-    token: string;
-    user_id: string;
+    id: number;
+    token?: string;
+    username?: string;
+    user_id?: string;
     is_admin: boolean;
+    last_login?: string | null;
 }
