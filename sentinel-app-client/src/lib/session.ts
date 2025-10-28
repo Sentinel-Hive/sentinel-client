@@ -1,5 +1,6 @@
 import { addAlert, Alert as AlertType } from "./alertsStore";
 import { UserData } from "@/types/types";
+import { addPopup as addPopupToStore } from "./popupsStore";
 
 let _baseURL =
     (typeof localStorage !== "undefined" && localStorage.getItem("svh.baseUrl")) ||
@@ -367,22 +368,26 @@ export function connectWebsocket() {
 
         let delivered: unknown = ev.data;
 
-        // Parse JSON only if it's a string
         if (typeof ev.data === "string") {
             try {
                 const parsed = JSON.parse(ev.data) as ServerMessage;
                 delivered = parsed;
 
-                // auto-ingest alerts into store
+                // Alerts: feed alert store (already present)
                 if (isAlertMessage(parsed)) {
                     try {
                         addAlert(parsed);
-                    } catch {
-                        // no-op
-                    }
+                    } catch {}
+
+                    // NEW: Popups — feed global popup store so every client reacts
+                } else if ((parsed as any)?.type === "popup") {
+                    const txt = (parsed as any)?.text ?? "";
+                    try {
+                        addPopupToStore(String(txt));
+                    } catch {}
                 }
             } catch {
-                // no-op: data wasn't JSON
+                // non-JSON; ignore
             }
         }
 
