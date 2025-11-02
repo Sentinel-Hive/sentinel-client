@@ -16,13 +16,13 @@ export type Log = {
 };
 
 export type DatasetItem = {
-    id: string;
+    id: number;
     name: string;
     size: number;
     lastModified?: number;
-    content: string;
+    content?: string;
     addedAt: string;
-    updatedAt: string;
+    updatedAt?: string;
 };
 
 export type RawLog = {

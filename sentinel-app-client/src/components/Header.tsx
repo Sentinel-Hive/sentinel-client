@@ -16,6 +16,7 @@ import AlertNotification, { Severity } from "./AlertNotification";
 import { useAlerts, onAlertAdded } from "../lib/alertsStore";
 import { useUser, useUserStore } from "../store/userStore";
 import { logout } from "../lib/session";
+import { fetchAllRecordsMeta } from "@/lib/dataHandler";
 
 const navLinkClass = "px-3 py-2 rounded-xl text-sm font-medium transition hover:bg-neutral-800/60";
 const activeClass = "bg-neutral-800";
@@ -82,6 +83,21 @@ export default function Header() {
         }
     };
 
+    const handleSyncClick = async () => {
+        try {
+            const payload = await fetchAllRecordsMeta();
+            const count =
+                typeof payload?.count == "number"
+                    ? payload.count
+                    : Array.isArray(payload?.items)
+                      ? payload.items.length
+                      : 0;
+            toast.success(`Synced ${count} record(s)`);
+        } catch {
+            toast.error("Unable to sync records. Please try again later.");
+        }
+    };
+
     const handleHelpClick = () => toast.info("Open Help (stub)");
     const handleAdminSettingsClick = () => {
         navigate("/admin");
@@ -132,12 +148,12 @@ export default function Header() {
                 <div className="flex items-center gap-2">
                     <button
                         type="button"
-                        onClick={() => toast.info("This is not implemented yet")}
+                        onClick={() => handleSyncClick()}
                         aria-label="Refresh"
                         className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800/60 focus:outline-none focus:ring-2 focus:ring-neutral-700"
                     >
                         <RotateCw className="h-4 w-4" />
-                        <span className="hidden sm:inline">Refresh</span>
+                        <span className="hidden sm:inline">Sync</span>
                     </button>
 
                     {/* Notifications dropdown */}

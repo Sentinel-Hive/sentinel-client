@@ -5,16 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import {
-    Upload,
-    FileText,
-    CheckCircle,
-    AlertTriangle,
-    Trash2,
-    Pencil,
-    Save,
-    X,
-} from "lucide-react";
+import { Upload, FileText, CheckCircle, AlertTriangle, Trash2 } from "lucide-react";
 import { DatasetItem } from "@/types/types";
 import { toast } from "sonner";
 import {
@@ -26,6 +17,8 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { useDatasets, useDatasetStore } from "@/store/datasetStore";
+import { postDatasetToServer } from "@/lib/dataHandler";
+import { StagedDatasetList } from "./StagedDatasetList";
 
 const formatSize = (sizeInBytes: number) => {
     if (sizeInBytes < 1024) {
@@ -39,19 +32,21 @@ const formatSize = (sizeInBytes: number) => {
 
 export default function Dataset() {
     const datasets = useDatasets();
-    const { addDataset, removeDataset } = useDatasetStore();
+    const { removeDataset, addDataset } = useDatasetStore();
 
     const fileInputRef = useRef<HTMLInputElement>(null);
+
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
     const [uploadStatus, setUploadStatus] = useState<string>("");
+    const [uploadingId, setUploadingId] = useState<number | null>(null);
     const [isError, setIsError] = useState<boolean>(false);
 
-    const [items, setItems] = useState<DatasetItem[]>([]);
+    const [stagedItems, setStagedItems] = useState<DatasetItem[]>([]);
 
-    const [editingId, setEditingId] = useState<string | null>(null);
+    const [editingId, setEditingId] = useState<number | null>(null);
     const [editValue, setEditValue] = useState<string>("");
 
-    const hasUnsaved = items.length > 0;
+    const hasUnsaved = stagedItems.length > 0;
 
     useEffect(() => {
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -66,6 +61,15 @@ export default function Dataset() {
     const isSaving = uploadStatus.startsWith("Saving");
     const humanCount = useMemo(() => String(selectedFiles.length || 0), [selectedFiles.length]);
 
+    const nextTempId = React.useCallback(() => {
+        let candidate: number;
+        const used = new Set(stagedItems.map((i) => i.id));
+        do {
+            candidate = Math.floor(Math.random() * 1_000_000_000); // 0..999,999,999
+        } while (used.has(candidate));
+        return candidate;
+    }, [stagedItems]);
+
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const fileList = event.target.files;
         if (!fileList) return;
@@ -77,61 +81,51 @@ export default function Dataset() {
         setIsError(false);
     };
 
-    // const handleUpload = async () => {
-    //     if (selectedFiles.length === 0) {
-    //         setUploadStatus("Please select one or more JSON files.");
-    //         setIsError(true);
-    //         return;
-    //     }
-    //     const formData = new FormData();
-    //     selectedFiles.forEach((file) => {
-    //         formData.append("datasets", file);
-    //     });
+    const handleUploadClick = async (itemId: number) => {
+        const itemToUpload = stagedItems.find((item) => item.id === itemId);
+        if (!itemToUpload || uploadingId === itemId) return;
+        try {
+            setUploadingId(itemId);
 
-    //     setUploadStatus("Uploading...");
-    //     setIsError(false);
-    //     try {
-    //         const response = await fetch("/api/ingest", {
-    //             method: "POST",
-    //             body: formData,
-    //         });
+            const { id: _tempId, ...rest } = itemToUpload;
+            const payload = {
+                ...rest,
+                updatedAt: new Date().toISOString(),
+            } as unknown as DatasetItem;
 
-    //         const result: { message?: string; error?: string } = await response.json();
+            const result = await postDatasetToServer(payload);
 
-    //         if (response.ok) {
-    //             setUploadStatus(
-    //                 `Upload successful! ${result.message || "Contents logged to terminal."}`
-    //             );
-    //             setIsError(false);
-    //             setSelectedFiles([]);
-    //         } else {
-    //             setUploadStatus(`Upload failed: ${result.error || "Unknown error"}`);
-    //             setIsError(true);
-    //         }
-    //     } catch (error) {
-    //         console.error("Network error during upload:", error);
+            if (!result?.success || !result?.id) {
+                throw new Error(
+                    "An unexpected error occurred while pushing the data to the server."
+                );
+            }
 
-    //         setUploadStatus(`An error occurred during upload: ${(error as Error).message}`);
-    //         setIsError(true);
-    //     }
-    // };
-    const handleUploadClick = (itemId: string) => {
-        const itemToMove = items.find((item) => item.id === itemId);
+            const datasetForStore: DatasetItem = {
+                ...itemToUpload,
+                id: Number(result.id),
+                size:
+                    typeof itemToUpload.size === "number"
+                        ? itemToUpload.size
+                        : new Blob([itemToUpload.content ?? ""]).size,
+            };
 
-        if (!itemToMove) return;
-        setItems((prevStaged) => prevStaged.filter((item) => item.id !== itemId));
+            addDataset(datasetForStore);
 
-        addDataset({
-            ...itemToMove,
-            updatedAt: new Date().toISOString(),
-        });
-        toast.success("Uploaded", {
-            description: `"${itemToMove.name}" added to datasets.`,
-        });
-        // Perform the actual server upload here
+            setStagedItems((prev) => prev.filter((it) => it.id !== itemId));
+
+            toast.success("Uploaded", {
+                description: `"${itemToUpload.name}" was uploaded${result?.id ? ` (id: ${result.id})` : ""}.`,
+            });
+        } catch (e) {
+            const msg = (e as Error)?.message || "Upload failed";
+            toast.error("Upload failed", { description: msg });
+        } finally {
+            setUploadingId(null);
+        }
     };
 
-    const handleSaveToMemory = async () => {
+    const handleStageData = async () => {
         if (selectedFiles.length === 0) {
             setUploadStatus("Please select one or more JSON files.");
             setIsError(true);
@@ -152,7 +146,7 @@ export default function Dataset() {
                 }
 
                 newItems.push({
-                    id: crypto.randomUUID(),
+                    id: nextTempId(),
                     name: f.name.replace(/\.json$/i, ""),
                     size: f.size,
                     lastModified: f.lastModified,
@@ -162,7 +156,7 @@ export default function Dataset() {
                 });
             }
 
-            setItems((prev) => [...newItems, ...prev]);
+            setStagedItems((prev) => [...newItems, ...prev]);
             setSelectedFiles([]);
 
             if (fileInputRef.current) {
@@ -179,7 +173,7 @@ export default function Dataset() {
         }
     };
 
-    const startEdit = (id: string, current: string) => {
+    const startEdit = (id: number, current: string) => {
         setEditingId(id);
         setEditValue(current);
     };
@@ -191,7 +185,7 @@ export default function Dataset() {
         if (!editingId) return;
         const trimmed = editValue.trim();
         if (!trimmed) return cancelEdit();
-        setItems((prev) =>
+        setStagedItems((prev) =>
             prev.map((it) =>
                 it.id === editingId
                     ? { ...it, name: trimmed, updatedAt: new Date().toISOString() }
@@ -201,120 +195,15 @@ export default function Dataset() {
         cancelEdit();
     };
 
-    const handleDelete = (id: string) => {
-        setItems((prev) => prev.filter((it) => it.id !== id));
+    const handleDelete = (id: number) => {
+        setStagedItems((prev) => prev.filter((it) => it.id !== id));
     };
 
-    const handleFinalUpload = () => {
-        if (items.length === 0) {
-            setUploadStatus("No staged datasets to upload.");
-            setIsError(true);
-            return;
-        }
-        const count = items.length;
-        setUploadStatus(`Uploading ${count} dataset(s) to server...`);
-        setIsError(false);
-        setTimeout(() => {
-            items.forEach((it) => addDataset({ ...it, updatedAt: new Date().toISOString() }));
-            setItems([]);
-            setUploadStatus(`Successfully uploaded ${count} dataset(s) to the server.`);
-            setIsError(false);
-            toast.success("Upload Complete!", {
-                description: `${count} dataset(s) are now live.`,
-            });
-        }, 400);
-    };
-    const handleDeleteUploaded = (id: string) => {
+    const handleDeleteUploaded = (id: number) => {
         removeDataset(id);
         toast.warning(`Dataset ${id} Deleted`, {
             description: "The dataset was removed from the live list.",
         });
-    };
-
-    const DatasetListRow = ({ it, isStaged }: { it: DatasetItem; isStaged: boolean }) => {
-        return (
-            <li
-                key={it.id}
-                className="flex items-center justify-between p-3 transition-colors hover:bg-gray-900"
-            >
-                <div className="flex items-center min-w-0">
-                    {isStaged && (
-                        <Button
-                            variant="ghost"
-                            className="mr-3 h-fit py-2 w-fit hover:bg-gray-800"
-                            onClick={() => handleUploadClick(it.id)}
-                            title="Simulate individual file upload to server"
-                        >
-                            <Upload className="text-yellow-500 size-5" />
-                        </Button>
-                    )}
-                    <FileText className="h-4 w-4 mr-2 flex-shrink-0" />
-                    {editingId === it.id && isStaged ? (
-                        <div className="flex items-center gap-2">
-                            <Input
-                                key={it.id}
-                                value={editValue}
-                                onChange={(e) => setEditValue(e.target.value)}
-                                className="h-8 w-56"
-                                placeholder="Dataset name"
-                            />
-                            <Button
-                                className="h-9 w-9 p-0"
-                                variant="ghost"
-                                onClick={commitEdit}
-                                aria-label="Save"
-                            >
-                                <Save className="h-4 w-4" />
-                            </Button>
-                            <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={cancelEdit}
-                                aria-label="Cancel"
-                            >
-                                <X className="h-4 w-4" />
-                            </Button>
-                        </div>
-                    ) : (
-                        <div className="flex items-center gap-2 min-w-0">
-                            <span className="truncate font-medium">{it.name}</span>
-                            <span className="text-xs text-muted-foreground flex-shrink-0">
-                                {formatSize(it.size)}
-                            </span>
-                            <span className="text-xs text-muted-foreground truncate hidden sm:block">
-                                • {isStaged ? "Staged" : "Uploaded"}:{" "}
-                                {new Date(it.updatedAt).toLocaleDateString()}
-                            </span>
-                        </div>
-                    )}
-                </div>
-
-                <div className="flex items-center gap-1 flex-shrink-0">
-                    {isStaged && editingId !== it.id && (
-                        <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => startEdit(it.id, it.name)}
-                            aria-label="Rename"
-                            title="Rename"
-                        >
-                            <Pencil className="h-4 w-4" />
-                        </Button>
-                    )}
-                    <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() =>
-                            isStaged ? handleDelete(it.id) : handleDeleteUploaded(it.id)
-                        }
-                        aria-label="Delete"
-                        title="Delete"
-                    >
-                        <Trash2 className="h-4 w-4 text-red-600" />
-                    </Button>
-                </div>
-            </li>
-        );
     };
 
     return (
@@ -341,14 +230,14 @@ export default function Dataset() {
                         <Input
                             id="json-files"
                             type="file"
-                            accept=".json"
+                            accept=".json, .jsonl, .ndjson,application/json"
                             multiple
                             onChange={handleFileChange}
                             className="flex-1"
                             ref={fileInputRef}
                         />
                         <Button
-                            onClick={handleSaveToMemory}
+                            onClick={handleStageData}
                             disabled={selectedFiles.length === 0 || isSaving}
                             className="flex items-center space-x-2 bg-yellow-600 hover:bg-yellow-700"
                         >
@@ -405,24 +294,38 @@ export default function Dataset() {
                                 Staged Datasets
                             </h3>
                             <Button
-                                onClick={handleFinalUpload}
-                                disabled={items.length === 0}
+                                onClick={() => toast.info("Work In Progress")}
+                                disabled={stagedItems.length === 0}
                                 className="flex items-center space-x-1 bg-green-600 hover:bg-green-700"
                             >
                                 <Upload className="h-4 w-4" />
-                                <span>Upload All ({items.length})</span>
+                                <span>Upload All ({stagedItems.length})</span>
                             </Button>
                         </div>
 
-                        {items.length === 0 ? (
+                        {stagedItems.length === 0 ? (
                             <div className="text-sm text-muted-foreground p-3 border rounded-md">
                                 Nothing staged yet. Add some JSON files above and click{" "}
                                 <strong>Stage</strong>.
                             </div>
                         ) : (
                             <ul className="divide-y rounded-md border">
-                                {items.map((it) => (
-                                    <DatasetListRow key={it.id} it={it} isStaged={true} />
+                                {stagedItems.map((it) => (
+                                    <StagedDatasetList
+                                        key={it.id}
+                                        it={it}
+                                        isStaged={true}
+                                        editingId={editingId}
+                                        editValue={editValue}
+                                        formatSize={formatSize}
+                                        onStartEdit={startEdit}
+                                        onCancelEdit={cancelEdit}
+                                        onCommitEdit={commitEdit}
+                                        onChangeEdit={setEditValue}
+                                        onUploadClick={handleUploadClick}
+                                        onDeleteStaged={handleDelete}
+                                        onDeleteUploaded={handleDeleteUploaded}
+                                    />
                                 ))}
                             </ul>
                         )}
