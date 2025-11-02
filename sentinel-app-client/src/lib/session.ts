@@ -166,9 +166,25 @@ export async function authFetch(path: string, init?: RequestInit): Promise<Respo
 
     const res = await fetch(_baseURL + path, { ...init, headers });
     if (res.status === 401) {
+        const www = res.headers.get("WWW-Authenticate") || "";
+        let invalid = /invalid_token|error="?invalid_token"?/i.test(www);
         // drop invalid token so future calls don't reuse it
         _token = null;
         clearSessionStorage();
+        if (!invalid) {
+            try {
+                const clone = res.clone();
+                const j = await clone.json();
+                invalid = j?.error === "invalid_token" || j?.code === "token_invalid";
+            } catch {
+                /* non-JSON or no clue */
+            }
+        }
+
+        if (invalid) {
+            _token = null;
+            clearSessionStorage();
+        }
     }
     return res;
 }
