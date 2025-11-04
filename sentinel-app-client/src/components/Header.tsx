@@ -16,7 +16,7 @@ import AlertNotification, { Severity } from "./AlertNotification";
 import { useAlerts, onAlertAdded } from "../lib/alertsStore";
 import { useUser, useUserStore } from "../store/userStore";
 import { logout } from "../lib/session";
-import { fetchAllRecordsMeta } from "@/lib/dataHandler";
+import { loadAllDatasets } from "@/lib/dataHandler";
 
 const navLinkClass = "px-3 py-2 rounded-xl text-sm font-medium transition hover:bg-neutral-800/60";
 const activeClass = "bg-neutral-800";
@@ -77,22 +77,14 @@ export default function Header() {
             useUserStore.getState().clearUser();
             navigate("/login");
             setLoggingOut(false);
-            // keep justLoggedOut true briefly to allow other components to avoid
-            // redirect races; it will be cleared after a short timeout
             setTimeout(() => setJustLoggedOut(false), 800);
         }
     };
 
     const handleSyncClick = async () => {
         try {
-            const payload = await fetchAllRecordsMeta();
-            const count =
-                typeof payload?.count == "number"
-                    ? payload.count
-                    : Array.isArray(payload?.items)
-                      ? payload.items.length
-                      : 0;
-            toast.success(`Synced ${count} record(s)`);
+            await loadAllDatasets();
+            toast.success(`Synced all database record(s)`);
         } catch {
             toast.error("Unable to sync records. Please try again later.");
         }

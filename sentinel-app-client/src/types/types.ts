@@ -18,12 +18,25 @@ export type Log = {
 export type DatasetItem = {
     id: number;
     name: string;
-    size: number;
+    path: string;
+    size?: number;
     lastModified?: number;
     content?: string;
     addedAt: string;
     updatedAt?: string;
 };
+
+export type DbDataset = {
+    id: number;
+    dataset_name: string;
+    dataset_path: string;
+    added_at: string;
+};
+export type ClientListResponse = {
+    count: number;
+    items: Array<{ record: DbDataset }>;
+};
+export type ClientOneResponse = { record: DbDataset };
 
 export type RawLog = {
     _raw?: string;

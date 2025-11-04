@@ -17,7 +17,7 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { useDatasets, useDatasetStore } from "@/store/datasetStore";
-import { postDatasetToServer } from "@/lib/dataHandler";
+import { loadAllDatasets, postDatasetToServer } from "@/lib/dataHandler";
 import { StagedDatasetList } from "./StagedDatasetList";
 
 const formatSize = (sizeInBytes: number) => {
@@ -58,6 +58,12 @@ export default function Dataset() {
         return () => window.removeEventListener("beforeunload", handleBeforeUnload);
     }, [hasUnsaved]);
 
+    useEffect(() => {
+        const loadData = async () => {
+            await loadAllDatasets();
+        };
+        loadData();
+    }, []);
     const isSaving = uploadStatus.startsWith("Saving");
     const humanCount = useMemo(() => String(selectedFiles.length || 0), [selectedFiles.length]);
 
@@ -148,6 +154,7 @@ export default function Dataset() {
                 newItems.push({
                     id: nextTempId(),
                     name: f.name.replace(/\.json$/i, ""),
+                    path: "",
                     size: f.size,
                     lastModified: f.lastModified,
                     content: text,
@@ -349,7 +356,7 @@ export default function Dataset() {
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Dataset Name</TableHead>
-                                            <TableHead className="w-20">Size</TableHead>
+                                            <TableHead className="w-20">Path</TableHead>
                                             <TableHead className="text-right">Actions</TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -367,7 +374,7 @@ export default function Dataset() {
 
                                                 <TableCell className="text-muted-foreground">
                                                     <div className="flex items-center h-full">
-                                                        {formatSize(it.size)}
+                                                        {it.path}
                                                     </div>
                                                 </TableCell>
 
