@@ -17,6 +17,7 @@ import { useAlerts, onAlertAdded } from "../lib/alertsStore";
 import { useUser, useUserStore } from "../store/userStore";
 import { logout } from "../lib/session";
 import { loadAllDatasets } from "@/lib/dataHandler";
+import { onPopupAdded } from "../lib/popupsStore";
 
 const navLinkClass = "px-3 py-2 rounded-xl text-sm font-medium transition hover:bg-neutral-800/60";
 const activeClass = "bg-neutral-800";
@@ -25,6 +26,16 @@ export default function Header() {
     const alerts = useAlerts();
 
     const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+
+    useEffect(() => {
+        // brief toast for any broadcast popup
+        const off = onPopupAdded((p) => {
+            toast(p.text, { duration: 2000 });
+        });
+        return () => {
+            off();
+        };
+    }, []);
 
     useEffect(() => {
         const off = onAlertAdded((a) => {
