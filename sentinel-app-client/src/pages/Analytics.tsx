@@ -1,4 +1,3 @@
-// src/pages/Analytics.tsx
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -10,9 +9,10 @@ import {
     SelectItem,
 } from "../components/ui/select";
 import { Checkbox } from "../components/ui/checkbox";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
-import LogUploader from "../components/LogUploader";
-import { Log } from "../types/types";
+import { useDatasets } from "@/store/datasetStore";
+import type { DatasetItem } from "@/types/types";
+import DatasetViewer from "@/components/DatasetViewer";
+import { loadAllDatasets } from "@/lib/dataHandler";
 
 const filterFields = [
     { key: "src_ip", label: "Source IP" },
@@ -27,14 +27,24 @@ const filterFields = [
     { key: "host", label: "Host" },
 ];
 
+type Row = {
+    __id: number;
+    __datasetId: number;
+    __datasetName: string;
+    __raw: Record<string, unknown> | null;
+    message: string;
+    timestamp?: string | number | null;
+    type?: string;
+};
+
+const ITEMS_PER_LOAD = 20;
+
 export default function Analytics() {
-    const [logs, setLogs] = useState<Log[]>([]);
-    const [displayedLogs, setDisplayedLogs] = useState<Log[]>([]);
+    const datasets = useDatasets();
+    const [displayedRows, setDisplayedRows] = useState<Row[]>([]);
     const [query, setQuery] = useState("");
     const [filters, setFilters] = useState<string[]>([]);
     const [showFilters, setShowFilters] = useState(false);
-    const [uploading, setUploading] = useState(false);
-    const [uploadProgress, setUploadProgress] = useState(0);
     const [fieldFilters, setFieldFilters] = useState<Record<string, string>>({
         src_ip: "",
         dest_ip: "",
@@ -50,12 +60,104 @@ export default function Analytics() {
     const [dateFrom, setDateFrom] = useState<string | null>(null);
     const [dateTo, setDateTo] = useState<string | null>(null);
     const [sortOption, setSortOption] = useState("Newest");
-    const [selectedLog, setSelectedLog] = useState<Log | null>(null);
-    const [logsToShow, setLogsToShow] = useState(500);
-    const ITEMS_PER_LOAD = 20;
+    const [selectedRow, setSelectedRow] = useState<Row | null>(null);
+    const [rowsToShow, setRowsToShow] = useState(500);
     const [loadedFilterOptions, setLoadedFilterOptions] = useState<Record<string, number>>(
         Object.fromEntries(filterFields.map((f) => [f.key, ITEMS_PER_LOAD]))
     );
+
+    useEffect(() => {
+        const loadData = async () => {
+            await loadAllDatasets();
+        };
+        loadData();
+        const interval = setInterval(loadData, 5000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const coerceMessage = (o: Record<string, unknown>): string => {
+        const cands = ["message", "msg", "log", "description", "event", "detail", "text"];
+        for (const k of cands) {
+            const v = o[k];
+            if (typeof v === "string" && v.trim()) return v;
+        }
+        try {
+            return JSON.stringify(o);
+        } catch {
+            return String(o);
+        }
+    };
+
+    const coerceTimestamp = (o: Record<string, unknown>): string | number | null => {
+        const cands = ["timestamp", "time", "ts", "date", "datetime", "@timestamp"];
+        for (const k of cands) {
+            const v = o[k];
+            if (typeof v === "string" || typeof v === "number") return v;
+        }
+        return null;
+    };
+
+    const coerceType = (o: Record<string, unknown>): string | undefined => {
+        const cands = ["type", "level", "severity"];
+        for (const k of cands) {
+            const v = o[k];
+            if (typeof v === "string") return v.toLowerCase();
+        }
+        return undefined;
+    };
+
+    const parseContentToObjects = (ds: DatasetItem): Record<string, unknown>[] => {
+        if (!ds.content) return [];
+        const text = ds.content.trim();
+        if (!text) return [];
+        try {
+            const parsed = JSON.parse(text);
+            if (Array.isArray(parsed)) return parsed.filter((x) => x && typeof x === "object");
+            if (parsed && typeof parsed === "object") return [parsed];
+        } catch {}
+        const rows: Record<string, unknown>[] = [];
+        for (const line of text.split(/\r?\n/)) {
+            const ln = line.trim();
+            if (!ln) continue;
+            try {
+                const obj = JSON.parse(ln);
+                if (obj && typeof obj === "object") rows.push(obj);
+            } catch {}
+        }
+        return rows;
+    };
+
+    const allRows: Row[] = useMemo(() => {
+        let idCounter = 1;
+        const out: Row[] = [];
+        datasets.forEach((ds) => {
+            const objs = parseContentToObjects(ds);
+            if (objs.length === 0) {
+                out.push({
+                    __id: ds.id || idCounter++,
+                    __datasetId: ds.id,
+                    __datasetName: ds.name,
+                    __raw: null,
+                    message: ds.name || "(empty dataset)",
+                    timestamp: null,
+                    type: undefined,
+                });
+            } else {
+                objs.forEach((o, idx) => {
+                    out.push({
+                        __id: Number(`${ds.id}${idx}`) || idCounter++,
+                        __datasetId: ds.id,
+                        __datasetName: ds.name,
+                        __raw: o,
+                        message: coerceMessage(o),
+                        timestamp: coerceTimestamp(o),
+                        type: coerceType(o),
+                    });
+                });
+            }
+        });
+        return out;
+    }, [datasets]);
 
     const clearAll = () => {
         setQuery("");
@@ -75,35 +177,7 @@ export default function Analytics() {
         setDateFrom(null);
         setDateTo(null);
         setShowFilters(false);
-        setLogsToShow(500);
-    };
-
-    const handleLogsProcessed = (processedLogs: Log[]) => {
-        setLogs(processedLogs);
-        setDisplayedLogs(processedLogs.slice(0, logsToShow));
-    };
-
-    const handleUploadStart = () => {
-        setUploading(true);
-        setUploadProgress(0);
-        setLogs([]);
-        setDisplayedLogs([]);
-    };
-
-    const handleUploadProgress = (progress: number) => {
-        setUploadProgress(progress);
-    };
-
-    const handleUploadComplete = () => {
-        setUploading(false);
-    };
-
-    const loadMoreLogs = () => {
-        setLogsToShow((prev) => {
-            const newLimit = prev + 500;
-            setDisplayedLogs(logs.slice(0, newLimit));
-            return newLimit;
-        });
+        setRowsToShow(500);
     };
 
     const toggleFilter = (type: string) => {
@@ -126,7 +200,9 @@ export default function Analytics() {
     const uniqueValues = (field: string) =>
         Array.from(
             new Set(
-                logs.map((l) => String((l as Record<string, unknown>)[field] ?? "")).filter(Boolean)
+                allRows
+                    .map((r) => String(((r.__raw ?? {}) as Record<string, unknown>)[field] ?? ""))
+                    .filter(Boolean)
             )
         );
 
@@ -135,28 +211,34 @@ export default function Analytics() {
         const regex = /(\w+)\s*=\s*['"]([^'"]+)['"]/g;
         let match;
         while ((match = regex.exec(query)) !== null) {
-            const [_, key, value] = match;
+            const [, key, value] = match;
             filters[key] = value;
         }
         return filters;
     };
 
-    const filteredLogs = useMemo(() => {
+    const filteredRows = useMemo(() => {
         const sqlFilters = parseSQLQuery(query);
-        const list = logs
-            .filter((log) => {
+        const list = allRows
+            .filter((row) => {
                 for (const [field, value] of Object.entries(sqlFilters)) {
-                    const logValue = String(
-                        (log as Record<string, unknown>)[field] ?? ""
+                    const v = String(
+                        ((row.__raw ?? {}) as Record<string, unknown>)[field] ?? ""
                     ).toLowerCase();
-                    if (!logValue.includes(value.toLowerCase())) return false;
+                    if (!v.includes(value.toLowerCase())) return false;
                 }
                 return true;
             })
-            .filter((log) => (filters.length > 0 ? filters.includes(log.type) : true))
-            .filter((log) => {
+            .filter((row) =>
+                filters.length > 0 ? (row.type ? filters.includes(row.type) : false) : true
+            )
+            .filter((row) => {
                 if (dateFrom || dateTo) {
-                    const ts = log.timestamp ? new Date(log.timestamp).getTime() : null;
+                    const tsRaw = row.timestamp;
+                    const ts =
+                        typeof tsRaw === "string" || typeof tsRaw === "number"
+                            ? new Date(tsRaw).getTime()
+                            : null;
                     if (ts) {
                         if (dateFrom) {
                             const from = new Date(dateFrom).getTime();
@@ -170,43 +252,54 @@ export default function Analytics() {
                         }
                     }
                 }
-
                 for (const [field, value] of Object.entries(fieldFilters)) {
                     if (value && value.trim() !== "") {
-                        const logVal = String(
-                            (log as Record<string, unknown>)[field] ?? ""
+                        const v = String(
+                            ((row.__raw ?? {}) as Record<string, unknown>)[field] ?? ""
                         ).toLowerCase();
-                        if (!logVal.includes(value.toLowerCase())) return false;
+                        if (!v.includes(value.toLowerCase())) return false;
                     }
                 }
                 return true;
             });
 
         const sorted = list.sort((a, b) => {
-            const ta = a.timestamp ? new Date(a.timestamp).getTime() : null;
-            const tb = b.timestamp ? new Date(b.timestamp).getTime() : null;
+            const ta = a.timestamp != null ? new Date(a.timestamp as any).getTime() : null;
+            const tb = b.timestamp != null ? new Date(b.timestamp as any).getTime() : null;
             if (sortOption === "A-Z") return a.message.localeCompare(b.message);
             if (sortOption === "Z-A") return b.message.localeCompare(a.message);
             if (sortOption === "Oldest") {
                 if (ta != null && tb != null) return ta - tb;
-                return a.id - b.id;
+                return a.__id - b.__id;
             }
-            // Newest
             if (ta != null && tb != null) return tb - ta;
-            return b.id - a.id;
+            return b.__id - a.__id;
         });
 
-        setDisplayedLogs(sorted.slice(0, logsToShow));
+        setDisplayedRows(sorted.slice(0, rowsToShow));
         return sorted;
-    }, [logs, query, filters, fieldFilters, dateFrom, dateTo, sortOption, logsToShow]);
+    }, [allRows, query, filters, fieldFilters, dateFrom, dateTo, sortOption, rowsToShow]);
+
+    const loadMoreRows = () => {
+        setRowsToShow((prev) => {
+            const newLimit = prev + 500;
+            setDisplayedRows(filteredRows.slice(0, newLimit));
+            return newLimit;
+        });
+    };
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") setSelectedLog(null);
+            if (e.key === "Escape") setSelectedRow(null);
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
     }, []);
+
+    const selectedDataset = useMemo(() => {
+        if (!selectedRow) return null;
+        return datasets.find((d) => d.id === selectedRow.__datasetId) ?? null;
+    }, [selectedRow, datasets]);
 
     return (
         <div className="flex">
@@ -350,20 +443,20 @@ export default function Analytics() {
                 </Button>
 
                 <div className="space-y-2 max-h-[30vh] overflow-y-auto">
-                    {displayedLogs.length === 0 ? (
+                    {displayedRows.length === 0 ? (
                         <div className="text-sm text-gray-500 italic text-center py-4">
-                            No more logs.
+                            No more records.
                         </div>
                     ) : (
-                        displayedLogs.map((log) => {
-                            const isSelected = selectedLog?.id === log.id;
+                        displayedRows.map((row) => {
+                            const isSelected = selectedRow?.__id === row.__id;
                             return (
                                 <div
-                                    key={log.id}
+                                    key={row.__id}
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        setSelectedLog((prev) =>
-                                            prev?.id === log.id ? null : log
+                                        setSelectedRow((prev) =>
+                                            prev?.__id === row.__id ? null : row
                                         );
                                     }}
                                     className={`p-2 border border-[hsl(var(--border))] rounded cursor-pointer truncate ${
@@ -371,61 +464,51 @@ export default function Analytics() {
                                             ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
                                             : "bg-[hsl(var(--bg))] hover:bg-[hsl(var(--muted))]"
                                     }`}
-                                    title={log.message}
+                                    title={row.message}
                                     role="button"
                                     tabIndex={0}
                                     onKeyDown={(e) => {
                                         if (e.key === "Enter") {
                                             e.stopPropagation();
-                                            setSelectedLog((prev) =>
-                                                prev?.id === log.id ? null : log
+                                            setSelectedRow((prev) =>
+                                                prev?.__id === row.__id ? null : row
                                             );
                                         }
                                     }}
                                     aria-pressed={isSelected}
                                 >
-                                    {log.message}
+                                    {row.message}
                                 </div>
                             );
                         })
                     )}
                 </div>
 
-                {logsToShow < filteredLogs.length && (
-                    <Button className="w-full mt-2" onClick={loadMoreLogs}>
+                {rowsToShow < filteredRows.length && (
+                    <Button className="w-full mt-2" onClick={loadMoreRows}>
                         Load More
                     </Button>
                 )}
             </div>
 
             <div className="flex-1 flex items-center justify-center">
-                {logs.length === 0 && (
-                    <LogUploader
-                        onLogsProcessed={handleLogsProcessed}
-                        uploading={uploading}
-                        uploadProgress={uploadProgress}
-                        onUploadStart={handleUploadStart}
-                        onUploadProgress={handleUploadProgress}
-                        onUploadComplete={handleUploadComplete}
-                    />
+                {allRows.length === 0 && (
+                    <div className="text-sm text-muted-foreground p-6 border rounded-md">
+                        No parsed records found in uploaded datasets. Add datasets on the Dataset
+                        page.
+                    </div>
                 )}
             </div>
 
-            <Dialog
-                open={!!selectedLog}
-                onOpenChange={(open) => {
-                    if (!open) setSelectedLog(null);
-                }}
-            >
-                <DialogContent className="w-96 max-h-[70vh] overflow-y-auto">
-                    <DialogHeader>
-                        <DialogTitle id="log-details-title">Log Details</DialogTitle>
-                    </DialogHeader>
-                    <div className="mt-2">
-                        <p className="mb-4">{selectedLog?.message}</p>
-                    </div>
-                </DialogContent>
-            </Dialog>
+            {selectedDataset && (
+                <DatasetViewer
+                    open={!!selectedDataset}
+                    dataset={selectedDataset}
+                    onOpenChange={(open) => {
+                        if (!open) setSelectedRow(null);
+                    }}
+                />
+            )}
         </div>
     );
 }

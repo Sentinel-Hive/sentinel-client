@@ -19,16 +19,7 @@ import {
 import { useDatasets, useDatasetStore } from "@/store/datasetStore";
 import { loadAllDatasets, postDatasetToServer } from "@/lib/dataHandler";
 import { StagedDatasetList } from "./StagedDatasetList";
-
-const formatSize = (sizeInBytes: number) => {
-    if (sizeInBytes < 1024) {
-        return `${sizeInBytes} B`;
-    } else if (sizeInBytes < 1024 * 1024) {
-        return `${(sizeInBytes / 1024).toFixed(1)} KB`;
-    } else {
-        return `${(sizeInBytes / (1024 * 1024)).toFixed(1)} MB`;
-    }
-};
+import { formatSize } from "@/lib/utils";
 
 export default function Dataset() {
     const datasets = useDatasets();

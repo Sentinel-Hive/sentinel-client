@@ -122,3 +122,13 @@ export function parseFlexibleJson(text: string): { objects: unknown[] } {
 
     throw new Error("Invalid JSON: not a single JSON value, NDJSON, or concatenated JSON objects.");
 }
+
+export const formatSize = (sizeInBytes: number) => {
+    if (sizeInBytes < 1024) {
+        return `${sizeInBytes} B`;
+    } else if (sizeInBytes < 1024 * 1024) {
+        return `${(sizeInBytes / 1024).toFixed(1)} KB`;
+    } else {
+        return `${(sizeInBytes / (1024 * 1024)).toFixed(1)} MB`;
+    }
+};
