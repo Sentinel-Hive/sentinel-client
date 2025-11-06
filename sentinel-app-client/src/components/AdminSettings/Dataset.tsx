@@ -46,6 +46,8 @@ export default function Dataset() {
     const [editingId, setEditingId] = useState<number | null>(null);
     const [editValue, setEditValue] = useState<string>("");
 
+    const [isBulkUploading, setIsBulkUploading] = useState(false);
+
     const hasUnsaved = stagedItems.length > 0;
 
     useEffect(() => {
@@ -63,6 +65,8 @@ export default function Dataset() {
             await loadAllDatasets();
         };
         loadData();
+        const interval = setInterval(loadData, 10000);
+        return () => clearInterval(interval);
     }, []);
     const isSaving = uploadStatus.startsWith("Saving");
     const humanCount = useMemo(() => String(selectedFiles.length || 0), [selectedFiles.length]);
@@ -123,11 +127,45 @@ export default function Dataset() {
             toast.success("Uploaded", {
                 description: `"${itemToUpload.name}" was uploaded${result?.id ? ` (id: ${result.id})` : ""}.`,
             });
+            return true;
         } catch (e) {
             const msg = (e as Error)?.message || "Upload failed";
             toast.error("Upload failed", { description: msg });
+            return false;
         } finally {
             setUploadingId(null);
+        }
+    };
+
+    const handleUploadAllClick = async () => {
+        if (stagedItems.length === 0 || isBulkUploading) return;
+
+        setIsBulkUploading(true);
+
+        const ids = stagedItems.map((i) => i.id);
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const id of ids) {
+            const ok = await handleUploadClick(id);
+            if (ok) successCount++;
+            else failCount++;
+        }
+
+        setIsBulkUploading(false);
+
+        if (successCount && !failCount) {
+            toast.success("All staged datasets uploaded", {
+                description: `${successCount} ${successCount === 1 ? "item" : "items"} uploaded successfully.`,
+            });
+        } else if (successCount && failCount) {
+            toast.warning("Upload completed with some errors", {
+                description: `${successCount} succeeded, ${failCount} failed.`,
+            });
+        } else {
+            toast.error("No datasets were uploaded", {
+                description: "Every upload attempt failed.",
+            });
         }
     };
 
@@ -301,12 +339,25 @@ export default function Dataset() {
                                 Staged Datasets
                             </h3>
                             <Button
-                                onClick={() => toast.info("Work In Progress")}
-                                disabled={stagedItems.length === 0}
+                                onClick={handleUploadAllClick}
+                                disabled={
+                                    stagedItems.length === 0 ||
+                                    isBulkUploading ||
+                                    uploadingId !== null
+                                }
                                 className="flex items-center space-x-1 bg-green-600 hover:bg-green-700"
                             >
-                                <Upload className="h-4 w-4" />
-                                <span>Upload All ({stagedItems.length})</span>
+                                {isBulkUploading ? (
+                                    <>
+                                        <span className="animate-spin">🔄</span>
+                                        <span>Uploading…</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Upload className="h-4 w-4" />
+                                        <span>Upload All ({stagedItems.length})</span>
+                                    </>
+                                )}
                             </Button>
                         </div>
 
@@ -355,6 +406,7 @@ export default function Dataset() {
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
+                                            <TableHead>Id</TableHead>
                                             <TableHead>Dataset Name</TableHead>
                                             <TableHead className="w-20">Path</TableHead>
                                             <TableHead className="text-right">Actions</TableHead>
@@ -363,6 +415,11 @@ export default function Dataset() {
                                     <TableBody>
                                         {datasets.map((it) => (
                                             <TableRow key={it.id} className="hover:bg-gray-900">
+                                                <TableCell className="text-muted-foreground">
+                                                    <div className="flex items-center h-full">
+                                                        {it.id}
+                                                    </div>
+                                                </TableCell>
                                                 <TableCell>
                                                     <div className="flex items-center">
                                                         <FileText className="h-4 w-4 mr-2 flex-shrink-0" />
