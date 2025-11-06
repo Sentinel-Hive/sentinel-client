@@ -33,6 +33,8 @@ export default function Analytics() {
     const [logListCollapsed, setLogListCollapsed] = useState(false);
 
     const sidebarRef = useRef<HTMLDivElement | null>(null);
+    // remember the split height before collapsing the logs
+    const savedLogSplitRef = useRef<number>(DEFAULT_FILTERS_HEIGHT);
 
     const [logs, setLogs] = useState<Log[]>([]);
     const [displayedLogs, setDisplayedLogs] = useState<Log[]>([]);
@@ -205,7 +207,6 @@ export default function Analytics() {
         setDisplayedLogs(filteredLogs.slice(0, logsToShow));
     }, [filteredLogs, logsToShow]);
 
-    // resize (sidebar)
     useEffect(() => {
         const onMove = (e: MouseEvent) => {
             if (!isResizingSidebar || sidebarCollapsed) return;
@@ -223,7 +224,6 @@ export default function Analytics() {
         };
     }, [isResizingSidebar, sidebarCollapsed]);
 
-    // resize (filters/logs divider)
     useEffect(() => {
         const onMove = (e: MouseEvent) => {
             if (!isResizingFilters || !sidebarRef.current) return;
@@ -243,7 +243,6 @@ export default function Analytics() {
         };
     }, [isResizingFilters]);
 
-    // esc deselect
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (e.key === "Escape") setSelectedLog(null);
@@ -266,13 +265,20 @@ export default function Analytics() {
     const handleCollapseLogList = () => {
         setLogListCollapsed((prev) => {
             const next = !prev;
-            if (!next) {
-                setFiltersHeight((h) => (h < TITLE_H + 10 ? DEFAULT_FILTERS_HEIGHT : h));
-            } else {
+            if (next) {
+                // collapsing logs: remember current split
+                savedLogSplitRef.current = filtersHeight;
                 if (sidebarRef.current) {
                     const h = sidebarRef.current.getBoundingClientRect().height;
                     setFiltersHeight(h - TITLE_H);
                 }
+            } else {
+                // reopening logs: restore previous split
+                const restored = savedLogSplitRef.current;
+                setFiltersHeight((_) => {
+                    const min = TITLE_H + 10;
+                    return restored < min ? DEFAULT_FILTERS_HEIGHT : restored;
+                });
             }
             return next;
         });
@@ -282,7 +288,7 @@ export default function Analytics() {
 
     const resizing = isResizingSidebar || isResizingFilters;
 
-    // chips
+    // chips for selected filters
     const chips: Array<{ id: string; label: string; onRemove: () => void }> = [];
     for (const ff of filterFields) {
         const selectedVals = fieldFilters[ff.key] || [];
@@ -399,7 +405,6 @@ export default function Analytics() {
                         </div>
                     )}
 
-                    {/* horizontal resizer */}
                     {!filtersCollapsed && !logListCollapsed && (
                         <div
                             onMouseDown={() => setIsResizingFilters(true)}
@@ -412,7 +417,6 @@ export default function Analytics() {
                         />
                     )}
 
-                    {/* LOGS SECTION */}
                     {!logListCollapsed ? (
                         <div className="flex-1 flex flex-col">
                             <div className="flex items-center justify-between h-[30px] px-3 bg-neutral-900/95 border-b border-neutral-700 sticky top-0 z-10">
@@ -475,7 +479,6 @@ export default function Analytics() {
                         </div>
                     )}
 
-                    {/* vertical resizer with padding so it doesn't cover scrollbars */}
                     <div
                         onMouseDown={() => setIsResizingSidebar(true)}
                         className="absolute top-0 right-[-3px] h-full w-[6px] bg-neutral-800/80 hover:bg-yellow-400/70 cursor-col-resize z-40"
@@ -483,9 +486,7 @@ export default function Analytics() {
                 </div>
             )}
 
-            {/* RIGHT SIDE */}
             <div className="flex-1 min-h-0 flex flex-col bg-black">
-                {/* top bar */}
                 <div className="px-4 py-2 text-sm text-neutral-400 flex items-center gap-3 border-b border-neutral-800">
                     <button
                         type="button"
