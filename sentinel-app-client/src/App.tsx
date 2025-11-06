@@ -15,23 +15,25 @@ function App() {
     const location = useLocation();
     const isLoginPage = ["/", "/login"].includes(location.pathname);
     const user = useUser();
-
-    useEffect(() => {
-        if (!user || user == null) {
-            navigate("/login");
-        }
-    }, [user]);
+    // commneted for testing purposes
+    // useEffect(() => {
+    //     if (!user || user == null) {
+    //         navigate("/login");
+    //     }
+    // }, [user]);
 
     return (
         <div className="min-h-screen">
             <Toaster richColors theme="dark" position="bottom-right" />
-
-            {!isLoginPage && <Header />}
+            {/* commneted for testing purposes */}
+            {/* {!isLoginPage && <Header />} */}
+            {<Header />}
 
             <main className="mx-auto max-w-6xl px-4 py-8">
                 <Routes>
                     {/* Default route → go to login */}
-                    <Route path="/" element={<Navigate to="/login" replace />} />
+                    {/* <Route path="/" element={<Navigate to="/login" replace />} /> */}
+                    <Route path="/" element={<Navigate to="/analytics" replace />} />
 
                     <Route path="/login" element={<Login />} />
                     <Route path="/analytics" element={<Analytics />} />

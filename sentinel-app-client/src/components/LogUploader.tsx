@@ -1,3 +1,4 @@
+// src/components/LogUploader.tsx
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Progress } from "./ui/progress";
 import { UploadCloud } from "lucide-react";
@@ -71,7 +72,9 @@ export default function LogUploader({
                 rawText,
                 (batch) => {
                     const normalized: Log[] = batch.map((entry, idx) => {
-                        const r = (entry as { result?: RawLog }).result || ({} as RawLog);
+                        // your sample puts data under "result"
+                        const r = (entry as { result?: RawLog }).result || (entry as RawLog) || {};
+                        // try to get nested raw if present
                         let innerRaw: RawLog = {};
                         try {
                             if (r._raw) {
@@ -81,31 +84,83 @@ export default function LogUploader({
                             innerRaw = {};
                         }
 
+                        // prefer the actual event record
+                        const source = { ...r, ...innerRaw };
+
+                        const id =
+                            (source.id as string) ?? (r.id as string) ?? `log-${Date.now()}-${idx}`;
+
+                        const appName =
+                            (source.appDisplayName as string) ??
+                            (source.resourceDisplayName as string);
+                        const eventType = Array.isArray(source.eventtype)
+                            ? source.eventtype.join(", ")
+                            : (source.eventtype as string | undefined);
+
+                        const msg =
+                            appName ||
+                            eventType ||
+                            (source.userPrincipalName as string) ||
+                            id ||
+                            "(no message)";
+
+                        const conditional =
+                            (source.conditionalAccessStatus as string) ??
+                            (source.riskLevelDuringSignIn as string) ??
+                            "info";
+
+                        const ts =
+                            (source.createdDateTime as string) ||
+                            (source._time as string) ||
+                            undefined;
+
+                        const srcIp =
+                            (source.ipAddress as string) || (source.src_ip as string) || undefined;
+
+                        const destIp =
+                            (source.dest as string) || (source.dest_ip as string) || undefined;
+
+                        const statusString =
+                            typeof source.status === "object" && source.status
+                                ? source.status.failureReason
+                                : undefined;
+
                         return {
-                            id: innerRaw.id ?? r.id ?? idx,
-                            message:
-                                innerRaw.appDisplayName ??
-                                r.appDisplayName ??
-                                innerRaw.resourceDisplayName ??
-                                r.resourceDisplayName ??
-                                "(no message)",
-                            type: r.conditionalAccessStatus ?? "info",
-                            timestamp: innerRaw.createdDateTime ?? r.createdDateTime ?? r._time,
-                            src_ip: innerRaw.ipAddress ?? r.ipAddress ?? r.src_ip,
-                            dest_ip: r.dest ?? "",
-                            user: innerRaw.userPrincipalName ?? r.user ?? r.userPrincipalName,
-                            event_type: Array.isArray(r.eventtype)
-                                ? r.eventtype.join(", ")
-                                : r.eventtype,
-                            severity: r.riskLevelDuringSignIn ?? "",
-                            app: innerRaw.appDisplayName ?? r.appDisplayName,
-                            dest_port: "",
-                            src_port: "",
-                            status:
-                                (typeof r["status.failureReason"] === "string"
-                                    ? r["status.failureReason"]
-                                    : innerRaw.status?.failureReason) ?? "",
-                            host: r.host ?? "",
+                            id,
+                            message: msg,
+                            type: conditional,
+                            timestamp: ts,
+                            src_ip: srcIp,
+                            dest_ip: destIp,
+                            user:
+                                (source.user as string) ||
+                                (source.userPrincipalName as string) ||
+                                undefined,
+                            event_type: eventType,
+                            severity: (source.riskLevelDuringSignIn as string) || "",
+                            app: appName,
+                            dest_port:
+                                source.dest_port !== undefined
+                                    ? String(source.dest_port)
+                                    : undefined,
+                            src_port:
+                                source.src_port !== undefined ? String(source.src_port) : undefined,
+                            status: statusString,
+                            host: (source.host as string) || "",
+                            _time: source._time as string | undefined,
+                            createdDateTime: source.createdDateTime as string | undefined,
+                            conditionalAccessStatus: source.conditionalAccessStatus as
+                                | string
+                                | undefined,
+                            riskLevelDuringSignIn: source.riskLevelDuringSignIn as
+                                | string
+                                | undefined,
+                            appDisplayName: source.appDisplayName as string | undefined,
+                            ipAddress: source.ipAddress as string | undefined,
+                            dest: source.dest as string | undefined,
+                            userPrincipalName: source.userPrincipalName as string | undefined,
+                            threatIndicator: source.threatIndicator as string | undefined,
+                            raw: entry as Record<string, unknown>,
                         };
                     });
 
@@ -141,7 +196,7 @@ export default function LogUploader({
     };
 
     return (
-        <Card className="border-neutral-800 bg-neutral-900">
+        <Card className="border-neutral-800 bg-neutral-900 w-full max-w-md">
             <CardHeader>
                 <CardTitle className="text-lg">Upload Logs</CardTitle>
             </CardHeader>
@@ -167,11 +222,13 @@ export default function LogUploader({
                             browse
                         </button>
                     </p>
-                    <p className="mt-1 text-xs text-neutral-400">Only .json files are supported.</p>
+                    <p className="mt-1 text-xs text-neutral-400">
+                        Only .json/.ndjson files are supported.
+                    </p>
                     <input
                         id="file-input"
                         type="file"
-                        accept=".json"
+                        accept=".json,.ndjson,.log"
                         onChange={handleInputChange}
                         className="sr-only"
                         aria-hidden="true"
