@@ -1,3 +1,4 @@
+// src/lib/session.ts
 import { addAlert, Alert as AlertType } from "./alertsStore";
 import { UserData } from "@/types/types";
 import { addPopup as addPopupToStore } from "./popupsStore";
@@ -8,8 +9,7 @@ let _baseURL =
 let _token: string | null = null;
 let userData: UserData | null = null;
 
-// Try to restore persisted session from localStorage so refreshing the page
-// doesn't log the user out. Keys: svh.token, svh.user
+// initial restore from localStorage
 if (typeof localStorage !== "undefined") {
     try {
         const saved = localStorage.getItem("svh.token");
@@ -18,13 +18,11 @@ if (typeof localStorage !== "undefined") {
         const u = localStorage.getItem("svh.user");
         if (u) {
             userData = JSON.parse(u) as UserData;
-            // If token wasn't stored separately, try to recover it from the saved user object
             if ((!_token || _token === "") && userData?.token) {
-                _token = userData.token;
+                _token = userData.token ?? null;
             }
         }
-    } catch (e) {
-        // ignore parse errors and continue with empty session
+    } catch {
         _token = null;
         userData = null;
     }
@@ -33,7 +31,6 @@ if (typeof localStorage !== "undefined") {
 function loadSessionFromStorage() {
     if (typeof localStorage === "undefined") return;
     try {
-        // restore base URL too if present
         if (!_baseURL) {
             const savedBase = localStorage.getItem("svh.baseUrl");
             if (savedBase) _baseURL = savedBase;
@@ -47,7 +44,7 @@ function loadSessionFromStorage() {
             if (u) {
                 userData = JSON.parse(u) as UserData;
                 if ((!_token || _token === "") && userData?.token) {
-                    _token = userData.token;
+                    _token = userData.token ?? null;
                 }
             }
         }
@@ -57,10 +54,6 @@ function loadSessionFromStorage() {
     }
 }
 
-/**
- * Restore session values (token, userData, baseURL) into module memory from
- * localStorage. Returns the restored userData (or null).
- */
 export function restoreSession(): UserData | null {
     loadSessionFromStorage();
     return userData;
@@ -76,20 +69,21 @@ function clearSessionStorage() {
         // ignore
     }
 }
+
 function normalizeBaseURL(input: string): string {
     let s = (input || "").trim();
     if (!s) throw new Error("Server address is required");
-    if (!/^https?:\/\//i.test(s)) s = "http://" + s; // default http
+    if (!/^https?:\/\//i.test(s)) s = "http://" + s;
     const u = new URL(s);
-    if (!u.port) u.port = "5167"; // default port
-    // strip trailing slash
+    if (!u.port) u.port = "5167";
     return u.toString().replace(/\/+$/, "");
 }
 
 export function setBaseURL(url: string) {
     _baseURL = normalizeBaseURL(url);
-
-    localStorage.setItem("svh.baseUrl", _baseURL);
+    if (typeof localStorage !== "undefined") {
+        localStorage.setItem("svh.baseUrl", _baseURL);
+    }
 }
 
 export function getBaseURL() {
@@ -138,19 +132,19 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 export async function authFetch(path: string, init?: RequestInit): Promise<Response> {
     const headers = new Headers(init?.headers || {});
-    // make sure in-memory session and base URL are loaded before making request
     loadSessionFromStorage();
-    // if token still missing, try reading directly from localStorage
+
     try {
         if ((!_token || _token === "") && typeof localStorage !== "undefined") {
             const saved = localStorage.getItem("svh.token");
-            if (saved) _token = saved;
-            else {
+            if (saved) {
+                _token = saved;
+            } else {
                 const u = localStorage.getItem("svh.user");
                 if (u) {
                     try {
                         const parsed = JSON.parse(u) as UserData;
-                        if (parsed?.token) _token = parsed.token;
+                        if (parsed?.token) _token = parsed.token ?? null;
                     } catch {
                         // ignore
                     }
@@ -163,22 +157,24 @@ export async function authFetch(path: string, init?: RequestInit): Promise<Respo
 
     if (_token) headers.set("Authorization", `Bearer ${_token}`);
 
-    // (debug logging removed)
-
     const res = await fetch(_baseURL + path, { ...init, headers });
     if (res.status === 401) {
         const www = res.headers.get("WWW-Authenticate") || "";
         let invalid = /invalid_token|error="?invalid_token"?/i.test(www);
-        // drop invalid token so future calls don't reuse it
+
         _token = null;
         clearSessionStorage();
+
         if (!invalid) {
             try {
                 const clone = res.clone();
-                const j = await clone.json();
-                invalid = j?.error === "invalid_token" || j?.code === "token_invalid";
+                const j = (await clone.json()) as unknown;
+                if (j && typeof j === "object") {
+                    const obj = j as { error?: string; code?: string };
+                    invalid = obj.error === "invalid_token" || obj.code === "token_invalid";
+                }
             } catch {
-                /* non-JSON or no clue */
+                // ignore
             }
         }
 
@@ -214,13 +210,10 @@ export async function login(opts: {
             ttl: opts.ttl ?? 3600,
         }),
     });
-    _token = res.token;
+    _token = res.token ?? null;
     userData = res;
     try {
         if (typeof localStorage !== "undefined") {
-            // Only persist a non-empty token. Some responses may omit a token
-            // (or include an empty string); don't store empty tokens as that
-            // later appears as a falsy value and confuses restore logic.
             if (_token) {
                 localStorage.setItem("svh.token", _token);
             } else {
@@ -236,15 +229,10 @@ export async function login(opts: {
 }
 
 export async function logout() {
-    // Load persisted session if needed
     if (!_token || !userData) {
         loadSessionFromStorage();
     }
 
-    // Optimistically clear local and in-memory session so the UI and other
-    // modules don't rehydrate the session during logout. We will still
-    // attempt to notify the server, but treat logout as successful locally
-    // regardless of the network result.
     const tokenToSend = _token;
     const userToSend = userData;
 
@@ -253,19 +241,16 @@ export async function logout() {
     clearSessionStorage();
 
     if (!tokenToSend || !userToSend) {
-        // Nothing to send to server; succeed locally
         return { response: true };
     }
 
     try {
-        // best-effort notify server; don't fail the logout locally if this errors
         await jsonFetch<{ ok: boolean }>("/auth/logout", {
             method: "POST",
             body: JSON.stringify({ user_id: userToSend.user_id, token: tokenToSend }),
         });
-    } catch (e) {
-        // ignore network errors — logout already cleared locally
-        console.error("logout: server notification failed", e);
+    } catch (err) {
+        console.error("logout: server notification failed", err);
     }
 
     return { response: true };
@@ -276,38 +261,33 @@ function attachLogoutOnClose() {
     if (_closeHookAttached) return;
     _closeHookAttached = true;
 
-    // Tauri close hook (optional)
+    // this keeps TS happy even if your version of @tauri-apps/api/window has no appWindow
+    type MaybeTauriWindowModule = typeof import("@tauri-apps/api/window") & {
+        appWindow?: {
+            onCloseRequested?: (cb: () => void | Promise<void>) => void;
+        };
+    };
 
-    // Optional Tauri window API: not present in web builds. Guard access to avoid
-    // throwing when the module or `appWindow` is not available.
     import("@tauri-apps/api/window")
         .then((mod) => {
-            try {
-                const appWindow = (mod as any)?.appWindow;
-                if (appWindow && typeof appWindow.onCloseRequested === "function") {
-                    appWindow.onCloseRequested(async () => {
-                        await logout();
-                    });
-                }
-            } catch {
-                // ignore runtime errors from optional API
+            const m = mod as MaybeTauriWindowModule;
+            const aw = m.appWindow;
+            if (aw?.onCloseRequested) {
+                aw.onCloseRequested(async () => {
+                    await logout();
+                });
             }
         })
         .catch(() => {
-            // ignore failure to import the optional module
+            // web build or older tauri: ignore
         });
 
-    // Browser/webview fallback
     if (typeof window !== "undefined") {
-        // Do not automatically logout or clear persisted session on page unload.
-        // Previously we attempted to POST /auth/logout and clear localStorage here
-        // which caused the token to be removed on simple page refreshes. That
-        // behavior is undesirable for browser reloads. Keep the hook no-op for
-        // web builds. Explicit logout should be performed via the UI.
+        // no-op for browser
     }
 }
 
-type PopupMessage = { type: "popup"; text: string };
+type PopupMessage = { type: "popup"; text?: string };
 type ErrorMessage = { type: "error"; detail: string };
 type ServerMessage = PopupMessage | ErrorMessage | AlertType | Record<string, unknown>;
 
@@ -323,9 +303,8 @@ function _emitWsOpen(open: boolean) {
     for (const fn of _wsOpenHandlers) {
         try {
             fn(open);
-        } catch (e) {
-            // no-op: avoid failing other handlers
-            console.error(e);
+        } catch (err) {
+            console.error(err);
         }
     }
 }
@@ -354,6 +333,10 @@ function isAlertMessage(v: unknown): v is AlertType {
     return isRecord(v) && v["type"] === "alert";
 }
 
+function isPopupMessage(v: unknown): v is PopupMessage {
+    return isRecord(v) && v["type"] === "popup";
+}
+
 export function connectWebsocket() {
     if (!_token) {
         console.warn("[WS] No token — cannot connect");
@@ -376,7 +359,6 @@ export function connectWebsocket() {
     ws.onopen = () => {
         console.log("[WS] onopen");
         _emitWsOpen(true);
-        // intentionally NOT sending a "hello" message
     };
 
     ws.onmessage = (ev: MessageEvent<string | ArrayBufferLike | Blob>) => {
@@ -389,18 +371,19 @@ export function connectWebsocket() {
                 const parsed = JSON.parse(ev.data) as ServerMessage;
                 delivered = parsed;
 
-                // Alerts: feed alert store (already present)
                 if (isAlertMessage(parsed)) {
                     try {
                         addAlert(parsed);
-                    } catch {}
-
-                    // NEW: Popups — feed global popup store so every client reacts
-                } else if ((parsed as any)?.type === "popup") {
-                    const txt = (parsed as any)?.text ?? "";
+                    } catch (err) {
+                        console.error("alert store push failed", err);
+                    }
+                } else if (isPopupMessage(parsed)) {
+                    const txt = parsed.text ?? "";
                     try {
                         addPopupToStore(String(txt));
-                    } catch {}
+                    } catch (err) {
+                        console.error("popup store push failed", err);
+                    }
                 }
             } catch {
                 // non-JSON; ignore
@@ -410,8 +393,8 @@ export function connectWebsocket() {
         for (const fn of _wsHandlers) {
             try {
                 fn(delivered);
-            } catch (e) {
-                console.error(e);
+            } catch (err) {
+                console.error(err);
             }
         }
     };

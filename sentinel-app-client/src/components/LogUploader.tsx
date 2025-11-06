@@ -72,9 +72,7 @@ export default function LogUploader({
                 rawText,
                 (batch) => {
                     const normalized: Log[] = batch.map((entry, idx) => {
-                        // your sample puts data under "result"
                         const r = (entry as { result?: RawLog }).result || (entry as RawLog) || {};
-                        // try to get nested raw if present
                         let innerRaw: RawLog = {};
                         try {
                             if (r._raw) {
@@ -84,15 +82,20 @@ export default function LogUploader({
                             innerRaw = {};
                         }
 
-                        // prefer the actual event record
                         const source = { ...r, ...innerRaw };
 
+                        // normalize id safely
+                        const rawId = source.id ?? r.id;
                         const id =
-                            (source.id as string) ?? (r.id as string) ?? `log-${Date.now()}-${idx}`;
+                            typeof rawId === "string"
+                                ? rawId
+                                : typeof rawId === "number"
+                                  ? String(rawId)
+                                  : `log-${Date.now()}-${idx}`;
 
                         const appName =
-                            (source.appDisplayName as string) ??
-                            (source.resourceDisplayName as string);
+                            (source.appDisplayName as string | undefined) ??
+                            (source.resourceDisplayName as string | undefined);
                         const eventType = Array.isArray(source.eventtype)
                             ? source.eventtype.join(", ")
                             : (source.eventtype as string | undefined);
@@ -100,29 +103,33 @@ export default function LogUploader({
                         const msg =
                             appName ||
                             eventType ||
-                            (source.userPrincipalName as string) ||
+                            (source.userPrincipalName as string | undefined) ||
                             id ||
                             "(no message)";
 
                         const conditional =
-                            (source.conditionalAccessStatus as string) ??
-                            (source.riskLevelDuringSignIn as string) ??
+                            (source.conditionalAccessStatus as string | undefined) ??
+                            (source.riskLevelDuringSignIn as string | undefined) ??
                             "info";
 
                         const ts =
-                            (source.createdDateTime as string) ||
-                            (source._time as string) ||
+                            (source.createdDateTime as string | undefined) ||
+                            (source._time as string | undefined) ||
                             undefined;
 
                         const srcIp =
-                            (source.ipAddress as string) || (source.src_ip as string) || undefined;
+                            (source.ipAddress as string | undefined) ||
+                            (source.src_ip as string | undefined) ||
+                            undefined;
 
                         const destIp =
-                            (source.dest as string) || (source.dest_ip as string) || undefined;
+                            (source.dest as string | undefined) ||
+                            (source.dest_ip as string | undefined) ||
+                            undefined;
 
                         const statusString =
                             typeof source.status === "object" && source.status
-                                ? source.status.failureReason
+                                ? (source.status as { failureReason?: string }).failureReason
                                 : undefined;
 
                         return {
@@ -133,11 +140,11 @@ export default function LogUploader({
                             src_ip: srcIp,
                             dest_ip: destIp,
                             user:
-                                (source.user as string) ||
-                                (source.userPrincipalName as string) ||
+                                (source.user as string | undefined) ||
+                                (source.userPrincipalName as string | undefined) ||
                                 undefined,
                             event_type: eventType,
-                            severity: (source.riskLevelDuringSignIn as string) || "",
+                            severity: (source.riskLevelDuringSignIn as string | undefined) || "",
                             app: appName,
                             dest_port:
                                 source.dest_port !== undefined
@@ -146,7 +153,8 @@ export default function LogUploader({
                             src_port:
                                 source.src_port !== undefined ? String(source.src_port) : undefined,
                             status: statusString,
-                            host: (source.host as string) || "",
+                            host: (source.host as string | undefined) || "",
+                            // keep raw fields so your Analytics view can render plain JSON
                             _time: source._time as string | undefined,
                             createdDateTime: source.createdDateTime as string | undefined,
                             conditionalAccessStatus: source.conditionalAccessStatus as
@@ -161,7 +169,7 @@ export default function LogUploader({
                             userPrincipalName: source.userPrincipalName as string | undefined,
                             threatIndicator: source.threatIndicator as string | undefined,
                             raw: entry as Record<string, unknown>,
-                        };
+                        } as Log;
                     });
 
                     allLogs.push(...normalized);

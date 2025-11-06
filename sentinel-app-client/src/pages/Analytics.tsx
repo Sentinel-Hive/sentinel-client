@@ -22,6 +22,24 @@ const filterFields: FilterField[] = [
 const TITLE_H = 30;
 const DEFAULT_FILTERS_HEIGHT = 260;
 
+// helper to read arbitrary field off a log without using any
+function getLogField(log: Log | (Log & Record<string, unknown>), field: string): string {
+    const record = log as Record<string, unknown>;
+    const val = record[field];
+    return val == null ? "" : String(val);
+}
+
+// helper to get the best timestamp-like field
+function getLogTimestamp(log: Log | (Log & Record<string, unknown>)): string | undefined {
+    const record = log as Record<string, unknown>;
+    return (
+        log.timestamp ||
+        (typeof record.createdDateTime === "string" ? record.createdDateTime : undefined) ||
+        (typeof record._time === "string" ? record._time : undefined) ||
+        (typeof record.created_at === "string" ? record.created_at : undefined)
+    );
+}
+
 export default function Analytics() {
     const [sidebarWidth, setSidebarWidth] = useState(300);
     const [isResizingSidebar, setIsResizingSidebar] = useState(false);
@@ -33,7 +51,6 @@ export default function Analytics() {
     const [logListCollapsed, setLogListCollapsed] = useState(false);
 
     const sidebarRef = useRef<HTMLDivElement | null>(null);
-    // remember the split height before collapsing the logs
     const savedLogSplitRef = useRef<number>(DEFAULT_FILTERS_HEIGHT);
 
     const [logs, setLogs] = useState<Log[]>([]);
@@ -57,11 +74,8 @@ export default function Analytics() {
     const [collapsedFilterSections, setCollapsedFilterSections] = useState<Record<string, boolean>>(
         Object.fromEntries(
             filterFields
-                .map((f) => [f.key, false])
-                .concat([
-                    ["date_range", false],
-                    ["type", false],
-                ])
+                .map((f) => [f.key, false] as const)
+                .concat([["date_range", false] as const, ["type", false] as const])
         )
     );
 
@@ -78,11 +92,18 @@ export default function Analytics() {
         setCollapsedFilterSections(
             Object.fromEntries(
                 filterFields
-                    .map((f) => [f.key, true])
-                    .concat([
-                        ["date_range", true],
-                        ["type", true],
-                    ])
+                    .map((f) => [f.key, true] as const)
+                    .concat([["date_range", true] as const, ["type", true] as const])
+            )
+        );
+    };
+
+    const expandAllFilterSections = () => {
+        setCollapsedFilterSections(
+            Object.fromEntries(
+                filterFields
+                    .map((f) => [f.key, false] as const)
+                    .concat([["date_range", false] as const, ["type", false] as const])
             )
         );
     };
@@ -129,16 +150,12 @@ export default function Analytics() {
     };
 
     const uniqueValues = (field: string) =>
-        Array.from(
-            new Set(
-                logs.map((l) => String((l as Record<string, unknown>)[field] ?? "")).filter(Boolean)
-            )
-        );
+        Array.from(new Set(logs.map((l) => getLogField(l, field)).filter((s) => s.length > 0)));
 
     const parseSQLQuery = (q: string): Record<string, string> => {
         const out: Record<string, string> = {};
         const regex = /(\w+)\s*=\s*['"]([^'"]+)['"]/g;
-        let m;
+        let m: RegExpExecArray | null;
         while ((m = regex.exec(q)) !== null) {
             out[m[1]] = m[2];
         }
@@ -150,7 +167,7 @@ export default function Analytics() {
         const list = logs
             .filter((log) => {
                 for (const [field, value] of Object.entries(sqlFilters)) {
-                    const v = String((log as any)[field] ?? "").toLowerCase();
+                    const v = getLogField(log, field).toLowerCase();
                     if (!v.includes(value.toLowerCase())) return false;
                 }
                 return true;
@@ -158,11 +175,7 @@ export default function Analytics() {
             .filter((log) => (filters.length ? filters.includes(log.type) : true))
             .filter((log) => {
                 if (dateFrom || dateTo) {
-                    const tsRaw =
-                        log.timestamp ||
-                        (log as any).createdDateTime ||
-                        (log as any)._time ||
-                        (log as any).created_at;
+                    const tsRaw = getLogTimestamp(log);
                     const ts = tsRaw ? new Date(tsRaw).getTime() : null;
                     if (ts) {
                         if (dateFrom && ts < new Date(dateFrom).getTime()) return false;
@@ -177,7 +190,7 @@ export default function Analytics() {
                 for (const ff of filterFields) {
                     const selections = fieldFilters[ff.key] || [];
                     if (selections.length > 0) {
-                        const logVal = String((log as any)[ff.key] ?? "").toLowerCase();
+                        const logVal = getLogField(log, ff.key).toLowerCase();
                         const matched = selections.some((sel) => logVal === sel.toLowerCase());
                         if (!matched) return false;
                     }
@@ -186,8 +199,8 @@ export default function Analytics() {
             });
 
         const sorted = list.sort((a, b) => {
-            const taRaw = a.timestamp || (a as any).createdDateTime || (a as any)._time;
-            const tbRaw = b.timestamp || (b as any).createdDateTime || (b as any)._time;
+            const taRaw = getLogTimestamp(a);
+            const tbRaw = getLogTimestamp(b);
             const ta = taRaw ? new Date(taRaw).getTime() : null;
             const tb = tbRaw ? new Date(tbRaw).getTime() : null;
             if (sortOption === "A-Z") return a.message.localeCompare(b.message);
@@ -207,6 +220,7 @@ export default function Analytics() {
         setDisplayedLogs(filteredLogs.slice(0, logsToShow));
     }, [filteredLogs, logsToShow]);
 
+    // sidebar vertical resize
     useEffect(() => {
         const onMove = (e: MouseEvent) => {
             if (!isResizingSidebar || sidebarCollapsed) return;
@@ -224,6 +238,7 @@ export default function Analytics() {
         };
     }, [isResizingSidebar, sidebarCollapsed]);
 
+    // filters/logs horizontal resize
     useEffect(() => {
         const onMove = (e: MouseEvent) => {
             if (!isResizingFilters || !sidebarRef.current) return;
@@ -243,6 +258,7 @@ export default function Analytics() {
         };
     }, [isResizingFilters]);
 
+    // esc to deselect
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (e.key === "Escape") setSelectedLog(null);
@@ -266,16 +282,16 @@ export default function Analytics() {
         setLogListCollapsed((prev) => {
             const next = !prev;
             if (next) {
-                // collapsing logs: remember current split
+                // collapsing
                 savedLogSplitRef.current = filtersHeight;
                 if (sidebarRef.current) {
                     const h = sidebarRef.current.getBoundingClientRect().height;
                     setFiltersHeight(h - TITLE_H);
                 }
             } else {
-                // reopening logs: restore previous split
+                // reopening
                 const restored = savedLogSplitRef.current;
-                setFiltersHeight((_) => {
+                setFiltersHeight(() => {
                     const min = TITLE_H + 10;
                     return restored < min ? DEFAULT_FILTERS_HEIGHT : restored;
                 });
@@ -288,7 +304,7 @@ export default function Analytics() {
 
     const resizing = isResizingSidebar || isResizingFilters;
 
-    // chips for selected filters
+    // build filter chips
     const chips: Array<{ id: string; label: string; onRemove: () => void }> = [];
     for (const ff of filterFields) {
         const selectedVals = fieldFilters[ff.key] || [];
@@ -355,13 +371,29 @@ export default function Analytics() {
                                 <span className="text-xs font-semibold text-yellow-400">
                                     Filters
                                 </span>
-                                <button
-                                    type="button"
-                                    onClick={handleCollapseFiltersPane}
-                                    className="h-6 w-6 flex items-center justify-center rounded bg-black border border-neutral-700"
-                                >
-                                    <PanelTopClose className="w-4 h-4 text-yellow-400" />
-                                </button>
+                                <div className="flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={collapseAllFilterSections}
+                                        className="h-6 px-2 text-[10px] bg-black border border-neutral-700 rounded text-yellow-400"
+                                    >
+                                        Collapse All
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={expandAllFilterSections}
+                                        className="h-6 px-2 text-[10px] bg-black border border-neutral-700 rounded text-yellow-400"
+                                    >
+                                        Expand All
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleCollapseFiltersPane}
+                                        className="h-6 w-6 flex items-center justify-center rounded bg-black border border-neutral-700"
+                                    >
+                                        <PanelTopClose className="w-4 h-4 text-yellow-400" />
+                                    </button>
+                                </div>
                             </div>
 
                             <FilterPanel
@@ -405,6 +437,7 @@ export default function Analytics() {
                         </div>
                     )}
 
+                    {/* horizontal resizer */}
                     {!filtersCollapsed && !logListCollapsed && (
                         <div
                             onMouseDown={() => setIsResizingFilters(true)}
@@ -412,11 +445,12 @@ export default function Analytics() {
                             style={{
                                 top: filtersHeight - 2,
                                 height: 6,
-                                width: "calc(100% - 8px)",
+                                width: "calc(100% - 8px)", // leave room for scrollbar
                             }}
                         />
                     )}
 
+                    {/* LOGS SECTION */}
                     {!logListCollapsed ? (
                         <div className="flex-1 flex flex-col">
                             <div className="flex items-center justify-between h-[30px] px-3 bg-neutral-900/95 border-b border-neutral-700 sticky top-0 z-10">
@@ -479,6 +513,7 @@ export default function Analytics() {
                         </div>
                     )}
 
+                    {/* vertical resizer with padding so it doesn't cover scroll bars */}
                     <div
                         onMouseDown={() => setIsResizingSidebar(true)}
                         className="absolute top-0 right-[-3px] h-full w-[6px] bg-neutral-800/80 hover:bg-yellow-400/70 cursor-col-resize z-40"
@@ -486,6 +521,7 @@ export default function Analytics() {
                 </div>
             )}
 
+            {/* RIGHT SIDE */}
             <div className="flex-1 min-h-0 flex flex-col bg-black">
                 <div className="px-4 py-2 text-sm text-neutral-400 flex items-center gap-3 border-b border-neutral-800">
                     <button
