@@ -332,7 +332,7 @@ export default function Analytics() {
             {!sidebarCollapsed && (
                 <div
                     ref={sidebarRef}
-                    className="relative h-full bg-neutral-900 border-r border-neutral-700 flex flex-col transition-all duration-150"
+                    className="relative h-full bg-neutral-900 border-r border-neutral-700 flex flex-col transition-all duration-150 pr-[6px]"
                     style={{ width: sidebarWidth }}
                 >
                     {/* FILTERS SECTION */}
@@ -399,7 +399,7 @@ export default function Analytics() {
                         </div>
                     )}
 
-                    {/* horizontal resizer: not covering scrollbar */}
+                    {/* horizontal resizer */}
                     {!filtersCollapsed && !logListCollapsed && (
                         <div
                             onMouseDown={() => setIsResizingFilters(true)}
@@ -407,7 +407,7 @@ export default function Analytics() {
                             style={{
                                 top: filtersHeight - 2,
                                 height: 6,
-                                width: "calc(100% - 8px)", // leaves room for scrollbar on right
+                                width: "calc(100% - 8px)",
                             }}
                         />
                     )}
@@ -475,10 +475,10 @@ export default function Analytics() {
                         </div>
                     )}
 
-                    {/* vertical resizer */}
+                    {/* vertical resizer with padding so it doesn't cover scrollbars */}
                     <div
                         onMouseDown={() => setIsResizingSidebar(true)}
-                        className="absolute top-0 right-0 h-full w-2 bg-neutral-800/80 hover:bg-yellow-400/70 cursor-col-resize z-40"
+                        className="absolute top-0 right-[-3px] h-full w-[6px] bg-neutral-800/80 hover:bg-yellow-400/70 cursor-col-resize z-40"
                     />
                 </div>
             )}
