@@ -21,7 +21,7 @@ export type DatasetItem = {
     path: string;
     size?: number;
     lastModified?: number;
-    content?: string;
+    content?: string | null;
     addedAt: string;
     updatedAt?: string;
 };

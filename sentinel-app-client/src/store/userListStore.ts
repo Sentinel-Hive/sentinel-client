@@ -1,10 +1,10 @@
 import { create } from "zustand";
 import { UseBoundStore, StoreApi } from "zustand";
-import { User } from "@/types/types";
+import { UserData } from "@/types/types";
 
 interface UserListStore {
-    users: User[];
-    addUser: (user: User) => void;
+    users: UserData[];
+    addUser: (user: UserData) => void;
     removeUser: (id: number) => void;
     clearUsers: () => void;
 }

@@ -9,10 +9,11 @@ import {
     SelectItem,
 } from "../components/ui/select";
 import { Checkbox } from "../components/ui/checkbox";
-import { useDatasets } from "@/store/datasetStore";
-import type { DatasetItem } from "@/types/types";
+import { useDatasets, useDatasetStore } from "@/store/datasetStore";
+import type { DatasetItem, Log, RawLog } from "@/types/types";
 import DatasetViewer from "@/components/DatasetViewer";
-import { loadAllDatasets } from "@/lib/dataHandler";
+import { formatSize } from "@/lib/utils";
+import { fetchDatasetContent } from "@/lib/dataHandler";
 
 const filterFields = [
     { key: "src_ip", label: "Source IP" },
@@ -27,21 +28,210 @@ const filterFields = [
     { key: "host", label: "Host" },
 ];
 
-type Row = {
-    __id: number;
-    __datasetId: number;
-    __datasetName: string;
-    __raw: Record<string, unknown> | null;
-    message: string;
-    timestamp?: string | number | null;
-    type?: string;
+type LogRow = Log & {
+    datasetId: number;
+    datasetName: string;
+    raw: RawLog | null;
 };
+
+type DatasetMatch = {
+    dataset: DatasetItem;
+    matchedCount: number;
+};
+
+type JsonPrimitive = string | number | boolean | null;
+type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
 const ITEMS_PER_LOAD = 20;
 
+const isJsonObject = (value: JsonValue): value is RawLog =>
+    typeof value === "object" && value !== null && !Array.isArray(value);
+
+const getFieldAsString = (obj: RawLog, field: string): string => {
+    const value = obj[field];
+    if (value === null || value === undefined) return "";
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        return String(value);
+    }
+    return "";
+};
+
+const coerceLogFromRaw = (raw: RawLog, fallbackId: number): Log => {
+    const messageCandidates = ["message", "msg", "log", "description", "event", "detail", "text"];
+
+    let message: string | undefined;
+    for (const key of messageCandidates) {
+        const value = raw[key];
+        if (typeof value === "string" && value.trim() !== "") {
+            message = value;
+            break;
+        }
+    }
+
+    if (!message) {
+        const serialized = JSON.stringify(raw);
+        const maxLen = 200;
+        message =
+            serialized.length > maxLen
+                ? `${serialized.slice(0, maxLen - 3)}...`
+                : serialized || "[empty record]";
+    }
+
+    const rawEventType = raw.eventtype;
+    let eventTypeString: string | undefined;
+    if (typeof rawEventType === "string") {
+        eventTypeString = rawEventType;
+    } else if (Array.isArray(rawEventType) && rawEventType.length > 0) {
+        const first = rawEventType[0];
+        if (typeof first === "string") {
+            eventTypeString = first;
+        }
+    }
+
+    const severity = typeof raw.severity === "string" ? raw.severity : undefined;
+
+    const type = eventTypeString ?? severity ?? "info";
+
+    const timestamp =
+        raw.createdDateTime ??
+        raw._time ??
+        (typeof raw.timestamp === "string" ? raw.timestamp : undefined);
+
+    const srcIp = raw.src_ip ?? (typeof raw.ipAddress === "string" ? raw.ipAddress : undefined);
+
+    const destIp = typeof raw.dest === "string" ? raw.dest : undefined;
+
+    const user =
+        raw.user ?? (typeof raw.userPrincipalName === "string" ? raw.userPrincipalName : undefined);
+
+    const app = typeof raw.appDisplayName === "string" ? raw.appDisplayName : undefined;
+
+    let statusValue: string | undefined;
+    if (typeof raw.status === "object" && raw.status !== null) {
+        const failure = (raw.status as { failureReason?: string }).failureReason;
+        if (typeof failure === "string") {
+            statusValue = failure;
+        }
+    }
+
+    const host = typeof raw.host === "string" ? raw.host : undefined;
+
+    const destPort = typeof raw.dest_port === "string" ? raw.dest_port : undefined;
+    const srcPort = typeof raw.src_port === "string" ? raw.src_port : undefined;
+
+    return {
+        id: raw.id ?? fallbackId,
+        message,
+        type,
+        src_ip: srcIp,
+        dest_ip: destIp,
+        user,
+        event_type: eventTypeString,
+        severity,
+        app,
+        dest_port: destPort,
+        src_port: srcPort,
+        status: statusValue,
+        host,
+        timestamp,
+    };
+};
+
+const parseDatasetToLogRows = (dataset: DatasetItem): LogRow[] => {
+    if (!dataset.content) return [];
+
+    const text = dataset.content.trim();
+    if (!text) return [];
+
+    const rows: LogRow[] = [];
+    let fallbackId = 1;
+
+    // Try full JSON document
+    try {
+        const parsed = JSON.parse(text) as JsonValue;
+        if (Array.isArray(parsed)) {
+            parsed.forEach((item) => {
+                if (isJsonObject(item)) {
+                    const log = coerceLogFromRaw(item, fallbackId++);
+                    rows.push({
+                        ...log,
+                        datasetId: dataset.id,
+                        datasetName: dataset.name,
+                        raw: item,
+                    });
+                }
+            });
+            if (rows.length > 0) return rows;
+        } else if (isJsonObject(parsed)) {
+            const log = coerceLogFromRaw(parsed, fallbackId++);
+            rows.push({
+                ...log,
+                datasetId: dataset.id,
+                datasetName: dataset.name,
+                raw: parsed,
+            });
+            return rows;
+        }
+    } catch (error) {
+        console.warn("Dataset is not a single JSON document, trying line-by-line", {
+            datasetId: dataset.id,
+            error,
+        });
+    }
+
+    const lines = text.split(/\r?\n/);
+    for (const rawLine of lines) {
+        const ln = rawLine.trim();
+        if (!ln) continue;
+        try {
+            const parsedLine = JSON.parse(ln) as JsonValue;
+            if (isJsonObject(parsedLine)) {
+                const log = coerceLogFromRaw(parsedLine, fallbackId++);
+                rows.push({
+                    ...log,
+                    datasetId: dataset.id,
+                    datasetName: dataset.name,
+                    raw: parsedLine,
+                });
+            }
+        } catch (error) {
+            console.warn("Failed to parse JSON line in dataset", {
+                datasetId: dataset.id,
+                line: ln,
+                error,
+            });
+        }
+    }
+
+    return rows;
+};
+
+const getTimestampMillis = (ts: string | undefined): number | null => {
+    if (!ts) return null;
+    const millis = Date.parse(ts);
+    if (Number.isNaN(millis)) return null;
+    return millis;
+};
+
+const parseSQLQuery = (sql: string): Record<string, string> => {
+    const result: Record<string, string> = {};
+    const regex = /(\w+)\s*=\s*['"]([^'"]+)['"]/g;
+    let match: RegExpExecArray | null;
+    // eslint-disable-next-line no-cond-assign
+    while ((match = regex.exec(sql)) !== null) {
+        const key = match[1];
+        const value = match[2];
+        result[key] = value;
+    }
+    return result;
+};
+
+/* ---------- Component ---------- */
+
 export default function Analytics() {
+    const { updateDataset } = useDatasetStore();
     const datasets = useDatasets();
-    const [displayedRows, setDisplayedRows] = useState<Row[]>([]);
+
     const [query, setQuery] = useState("");
     const [filters, setFilters] = useState<string[]>([]);
     const [showFilters, setShowFilters] = useState(false);
@@ -60,104 +250,44 @@ export default function Analytics() {
     const [dateFrom, setDateFrom] = useState<string | null>(null);
     const [dateTo, setDateTo] = useState<string | null>(null);
     const [sortOption, setSortOption] = useState("Newest");
-    const [selectedRow, setSelectedRow] = useState<Row | null>(null);
-    const [rowsToShow, setRowsToShow] = useState(500);
+    const [datasetsToShow, setDatasetsToShow] = useState(20);
+    const [selectedDatasetIds, setSelectedDatasetIds] = useState<number[]>([]);
     const [loadedFilterOptions, setLoadedFilterOptions] = useState<Record<string, number>>(
         Object.fromEntries(filterFields.map((f) => [f.key, ITEMS_PER_LOAD]))
     );
+    const [viewerDataset, setViewerDataset] = useState<DatasetItem | null>(null);
 
-    useEffect(() => {
-        const loadData = async () => {
-            await loadAllDatasets();
-        };
-        loadData();
-        const interval = setInterval(loadData, 5000);
-        return () => clearInterval(interval);
-    }, []);
-
-    const coerceMessage = (o: Record<string, unknown>): string => {
-        const cands = ["message", "msg", "log", "description", "event", "detail", "text"];
-        for (const k of cands) {
-            const v = o[k];
-            if (typeof v === "string" && v.trim()) return v;
-        }
-        try {
-            return JSON.stringify(o);
-        } catch {
-            return String(o);
-        }
-    };
-
-    const coerceTimestamp = (o: Record<string, unknown>): string | number | null => {
-        const cands = ["timestamp", "time", "ts", "date", "datetime", "@timestamp"];
-        for (const k of cands) {
-            const v = o[k];
-            if (typeof v === "string" || typeof v === "number") return v;
-        }
-        return null;
-    };
-
-    const coerceType = (o: Record<string, unknown>): string | undefined => {
-        const cands = ["type", "level", "severity"];
-        for (const k of cands) {
-            const v = o[k];
-            if (typeof v === "string") return v.toLowerCase();
-        }
-        return undefined;
-    };
-
-    const parseContentToObjects = (ds: DatasetItem): Record<string, unknown>[] => {
-        if (!ds.content) return [];
-        const text = ds.content.trim();
-        if (!text) return [];
-        try {
-            const parsed = JSON.parse(text);
-            if (Array.isArray(parsed)) return parsed.filter((x) => x && typeof x === "object");
-            if (parsed && typeof parsed === "object") return [parsed];
-        } catch {}
-        const rows: Record<string, unknown>[] = [];
-        for (const line of text.split(/\r?\n/)) {
-            const ln = line.trim();
-            if (!ln) continue;
-            try {
-                const obj = JSON.parse(ln);
-                if (obj && typeof obj === "object") rows.push(obj);
-            } catch {}
-        }
-        return rows;
-    };
-
-    const allRows: Row[] = useMemo(() => {
-        let idCounter = 1;
-        const out: Row[] = [];
+    // Build logs per dataset
+    const logsByDatasetId: Record<number, LogRow[]> = useMemo(() => {
+        const map: Record<number, LogRow[]> = {};
         datasets.forEach((ds) => {
-            const objs = parseContentToObjects(ds);
-            if (objs.length === 0) {
-                out.push({
-                    __id: ds.id || idCounter++,
-                    __datasetId: ds.id,
-                    __datasetName: ds.name,
-                    __raw: null,
-                    message: ds.name || "(empty dataset)",
-                    timestamp: null,
-                    type: undefined,
-                });
-            } else {
-                objs.forEach((o, idx) => {
-                    out.push({
-                        __id: Number(`${ds.id}${idx}`) || idCounter++,
-                        __datasetId: ds.id,
-                        __datasetName: ds.name,
-                        __raw: o,
-                        message: coerceMessage(o),
-                        timestamp: coerceTimestamp(o),
-                        type: coerceType(o),
-                    });
-                });
-            }
+            map[ds.id] = parseDatasetToLogRows(ds);
         });
-        return out;
+        return map;
     }, [datasets]);
+
+    const allLogs: LogRow[] = useMemo(() => {
+        const result: LogRow[] = [];
+        Object.values(logsByDatasetId).forEach((arr) => result.push(...arr));
+        return result;
+    }, [logsByDatasetId]);
+
+    const uniqueValues = (field: string): string[] =>
+        Array.from(
+            new Set(
+                allLogs
+                    .map((log) => (log.raw ? getFieldAsString(log.raw, field) : ""))
+                    .filter((val) => val !== "")
+            )
+        );
+
+    const hasActiveFilters = useMemo(() => {
+        const hasSql = query.trim() !== "";
+        const hasTypes = filters.length > 0;
+        const hasDate = dateFrom !== null || dateTo !== null;
+        const hasFieldFilters = Object.values(fieldFilters).some((v) => v.trim() !== "");
+        return hasSql || hasTypes || hasDate || hasFieldFilters;
+    }, [query, filters, dateFrom, dateTo, fieldFilters]);
 
     const clearAll = () => {
         setQuery("");
@@ -177,7 +307,7 @@ export default function Analytics() {
         setDateFrom(null);
         setDateTo(null);
         setShowFilters(false);
-        setRowsToShow(500);
+        setDatasetsToShow(20);
     };
 
     const toggleFilter = (type: string) => {
@@ -187,7 +317,7 @@ export default function Analytics() {
     };
 
     const setFieldFilter = (field: string, value: string) => {
-        setFieldFilters((prev: Record<string, string>) => ({ ...prev, [field]: value }));
+        setFieldFilters((prev) => ({ ...prev, [field]: value }));
     };
 
     const loadMoreFilterOptions = (field: string) => {
@@ -197,116 +327,157 @@ export default function Analytics() {
         }));
     };
 
-    const uniqueValues = (field: string) =>
-        Array.from(
-            new Set(
-                allRows
-                    .map((r) => String(((r.__raw ?? {}) as Record<string, unknown>)[field] ?? ""))
-                    .filter(Boolean)
-            )
-        );
-
-    const parseSQLQuery = (query: string): Record<string, string> => {
-        const filters: Record<string, string> = {};
-        const regex = /(\w+)\s*=\s*['"]([^'"]+)['"]/g;
-        let match;
-        while ((match = regex.exec(query)) !== null) {
-            const [, key, value] = match;
-            filters[key] = value;
-        }
-        return filters;
-    };
-
-    const filteredRows = useMemo(() => {
+    // Filter logs, then compute matching datasets
+    const { matchingDatasets, totalMatchingLogs } = useMemo(() => {
         const sqlFilters = parseSQLQuery(query);
-        const list = allRows
-            .filter((row) => {
+
+        const filteredLogs = allLogs.filter((log) => {
+            const raw = log.raw;
+
+            // SQL-like field filters
+            if (Object.keys(sqlFilters).length > 0) {
+                if (!raw) return false;
                 for (const [field, value] of Object.entries(sqlFilters)) {
-                    const v = String(
-                        ((row.__raw ?? {}) as Record<string, unknown>)[field] ?? ""
-                    ).toLowerCase();
+                    const v = getFieldAsString(raw, field).toLowerCase();
                     if (!v.includes(value.toLowerCase())) return false;
                 }
-                return true;
-            })
-            .filter((row) =>
-                filters.length > 0 ? (row.type ? filters.includes(row.type) : false) : true
-            )
-            .filter((row) => {
-                if (dateFrom || dateTo) {
-                    const tsRaw = row.timestamp;
-                    const ts =
-                        typeof tsRaw === "string" || typeof tsRaw === "number"
-                            ? new Date(tsRaw).getTime()
-                            : null;
-                    if (ts) {
-                        if (dateFrom) {
-                            const from = new Date(dateFrom).getTime();
-                            if (ts < from) return false;
-                        }
-                        if (dateTo) {
-                            const toDate = new Date(dateTo);
-                            toDate.setHours(23, 59, 59, 999);
-                            const to = toDate.getTime();
-                            if (ts > to) return false;
-                        }
+            }
+
+            // type filters
+            if (filters.length > 0) {
+                const logType = log.type.toLowerCase();
+                if (!filters.includes(logType)) return false;
+            }
+
+            // date range filters
+            if (dateFrom || dateTo) {
+                const tsMillis = getTimestampMillis(log.timestamp);
+                if (tsMillis !== null) {
+                    if (dateFrom) {
+                        const fromMillis = getTimestampMillis(dateFrom);
+                        if (fromMillis !== null && tsMillis < fromMillis) return false;
+                    }
+                    if (dateTo) {
+                        const toDate = new Date(dateTo);
+                        toDate.setHours(23, 59, 59, 999);
+                        const toMillis = toDate.getTime();
+                        if (tsMillis > toMillis) return false;
                     }
                 }
+            }
+
+            // fieldFilters
+            if (Object.values(fieldFilters).some((v) => v.trim() !== "")) {
+                if (!raw) return false;
                 for (const [field, value] of Object.entries(fieldFilters)) {
-                    if (value && value.trim() !== "") {
-                        const v = String(
-                            ((row.__raw ?? {}) as Record<string, unknown>)[field] ?? ""
-                        ).toLowerCase();
+                    if (value.trim() !== "") {
+                        const v = getFieldAsString(raw, field).toLowerCase();
                         if (!v.includes(value.toLowerCase())) return false;
                     }
                 }
-                return true;
-            });
-
-        const sorted = list.sort((a, b) => {
-            const ta = a.timestamp != null ? new Date(a.timestamp as any).getTime() : null;
-            const tb = b.timestamp != null ? new Date(b.timestamp as any).getTime() : null;
-            if (sortOption === "A-Z") return a.message.localeCompare(b.message);
-            if (sortOption === "Z-A") return b.message.localeCompare(a.message);
-            if (sortOption === "Oldest") {
-                if (ta != null && tb != null) return ta - tb;
-                return a.__id - b.__id;
             }
-            if (ta != null && tb != null) return tb - ta;
-            return b.__id - a.__id;
+
+            return true;
         });
 
-        setDisplayedRows(sorted.slice(0, rowsToShow));
-        return sorted;
-    }, [allRows, query, filters, fieldFilters, dateFrom, dateTo, sortOption, rowsToShow]);
-
-    const loadMoreRows = () => {
-        setRowsToShow((prev) => {
-            const newLimit = prev + 500;
-            setDisplayedRows(filteredRows.slice(0, newLimit));
-            return newLimit;
+        // Map dataset -> matched count
+        const countsByDatasetId = new Map<number, number>();
+        filteredLogs.forEach((log) => {
+            const current = countsByDatasetId.get(log.datasetId) ?? 0;
+            countsByDatasetId.set(log.datasetId, current + 1);
         });
+
+        let matches: DatasetMatch[];
+
+        if (!hasActiveFilters) {
+            // Default: ALL dataset items
+            matches = datasets.map((ds) => ({
+                dataset: ds,
+                matchedCount: (logsByDatasetId[ds.id] ?? []).length,
+            }));
+        } else {
+            matches = datasets
+                .map((ds) => {
+                    const cnt = countsByDatasetId.get(ds.id) ?? 0;
+                    return { dataset: ds, matchedCount: cnt };
+                })
+                .filter((m) => m.matchedCount > 0);
+        }
+
+        const sorted = matches.slice().sort((a, b) => {
+            if (sortOption === "A-Z") {
+                return a.dataset.name.localeCompare(b.dataset.name);
+            }
+            if (sortOption === "Z-A") {
+                return b.dataset.name.localeCompare(a.dataset.name);
+            }
+
+            const ta = Date.parse(a.dataset.addedAt);
+            const tb = Date.parse(b.dataset.addedAt);
+
+            if (sortOption === "Oldest") {
+                if (!Number.isNaN(ta) && !Number.isNaN(tb)) return ta - tb;
+                return a.dataset.id - b.dataset.id;
+            }
+
+            // Default: "Newest"
+            if (!Number.isNaN(ta) && !Number.isNaN(tb)) return tb - ta;
+            return b.dataset.id - a.dataset.id;
+        });
+
+        return {
+            matchingDatasets: sorted,
+            totalMatchingLogs: filteredLogs.length,
+        };
+    }, [
+        allLogs,
+        datasets,
+        logsByDatasetId,
+        query,
+        filters,
+        fieldFilters,
+        dateFrom,
+        dateTo,
+        sortOption,
+        hasActiveFilters,
+    ]);
+
+    const displayedDatasets = useMemo(
+        () => matchingDatasets.slice(0, datasetsToShow),
+        [matchingDatasets, datasetsToShow]
+    );
+
+    const loadMoreDatasets = () => {
+        setDatasetsToShow((prev) => prev + 20);
     };
+
+    const selectedDatasets = useMemo(
+        () => datasets.filter((d) => selectedDatasetIds.includes(d.id)),
+        [datasets, selectedDatasetIds]
+    );
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") setSelectedRow(null);
+            if (e.key === "Escape") {
+                setViewerDataset(null);
+            }
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
     }, []);
 
-    const selectedDataset = useMemo(() => {
-        if (!selectedRow) return null;
-        return datasets.find((d) => d.id === selectedRow.__datasetId) ?? null;
-    }, [selectedRow, datasets]);
+    const toggleDatasetSelection = (datasetId: number) => {
+        setSelectedDatasetIds((prev) =>
+            prev.includes(datasetId) ? prev.filter((id) => id !== datasetId) : [...prev, datasetId]
+        );
+    };
 
     return (
-        <div className="flex">
-            <div className="flex-1 max-w-sm md:max-w-md lg:max-w-lg xl:max-w-xl 2xl:max-w-2xl ml-0 mr-4 my-4 p-4 bg-[hsl(var(--muted))] border border-[hsl(var(--border))] rounded-lg">
+        <div className="flex flex-row justify-between">
+            <div className="flex-1 max-w-sm md:max-w-md lg:max-w-lg xl:max-w-xl 2xl:max-w-2xl ml-0 mr-4 my-4 p-4 bg-[hsl(var(--muted))] border border-[hsl(var(--border))] rounded-lg h-fit">
                 <Input
                     value={query}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
+                    onChange={(e) => setQuery(e.target.value)}
                     placeholder="Enter SQL-like query (e.g., src_ip='192.168.1.1' AND user='admin')"
                     className="w-full mb-2"
                 />
@@ -324,44 +495,47 @@ export default function Analytics() {
                     </div>
 
                     {showFilters && (
-                        <div className="mt-2 space-y-3 p-3 bg-[hsl(var(--bg))] border border-[hsl(var(--border))] rounded">
-                            {filterFields.map((f) => (
-                                <div key={f.key}>
-                                    <div className="text-sm font-medium mb-1">{f.label}</div>
-                                    <div className="flex flex-wrap gap-2">
-                                        {uniqueValues(f.key)
-                                            .slice(0, loadedFilterOptions[f.key])
-                                            .map((val) => {
-                                                const selected = fieldFilters[f.key] === val;
-                                                return (
-                                                    <Button
-                                                        key={val}
-                                                        size="sm"
-                                                        variant={selected ? "default" : "ghost"}
-                                                        onClick={() =>
-                                                            setFieldFilter(
-                                                                f.key,
-                                                                selected ? "" : val
-                                                            )
-                                                        }
-                                                    >
-                                                        {val}
-                                                    </Button>
-                                                );
-                                            })}
+                        <div className="mt-2 space-y-3 p-3 bg-[hsl(var(--bg))] border border-yellow-400 rounded">
+                            {filterFields.map((f) => {
+                                const values = uniqueValues(f.key);
+                                return (
+                                    <div key={f.key}>
+                                        <div className="text-sm font-medium mb-1">{f.label}</div>
+                                        <div className="flex flex-wrap gap-2">
+                                            {values
+                                                .slice(0, loadedFilterOptions[f.key])
+                                                .map((val) => {
+                                                    const selected = fieldFilters[f.key] === val;
+                                                    return (
+                                                        <Button
+                                                            key={`${f.key}-${val}`}
+                                                            size="sm"
+                                                            variant={selected ? "default" : "ghost"}
+                                                            onClick={() =>
+                                                                setFieldFilter(
+                                                                    f.key,
+                                                                    selected ? "" : val
+                                                                )
+                                                            }
+                                                        >
+                                                            {val}
+                                                        </Button>
+                                                    );
+                                                })}
+                                        </div>
+                                        {values.length > loadedFilterOptions[f.key] && (
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="mt-2"
+                                                onClick={() => loadMoreFilterOptions(f.key)}
+                                            >
+                                                Load More
+                                            </Button>
+                                        )}
                                     </div>
-                                    {uniqueValues(f.key).length > loadedFilterOptions[f.key] && (
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            className="mt-2"
-                                            onClick={() => loadMoreFilterOptions(f.key)}
-                                        >
-                                            Load More
-                                        </Button>
-                                    )}
-                                </div>
-                            ))}
+                                );
+                            })}
 
                             <div>
                                 <div className="text-sm font-medium mb-1">Date Range (Between)</div>
@@ -426,7 +600,7 @@ export default function Analytics() {
                     )}
                 </div>
 
-                <Select value={sortOption} onValueChange={(v) => setSortOption(v)}>
+                <Select value={"Sort By:"} onValueChange={(v) => setSortOption(v)}>
                     <SelectTrigger className="w-full mb-2">
                         <SelectValue placeholder="Sort" />
                     </SelectTrigger>
@@ -442,70 +616,136 @@ export default function Analytics() {
                     View All
                 </Button>
 
+                <div className="text-xs text-muted-foreground mb-1">
+                    Matching logs: {totalMatchingLogs}
+                </div>
+
                 <div className="space-y-2 max-h-[30vh] overflow-y-auto">
-                    {displayedRows.length === 0 ? (
+                    {displayedDatasets.length === 0 ? (
                         <div className="text-sm text-gray-500 italic text-center py-4">
-                            No more records.
+                            No datasets match the current filters.
                         </div>
                     ) : (
-                        displayedRows.map((row) => {
-                            const isSelected = selectedRow?.__id === row.__id;
+                        displayedDatasets.map(({ dataset, matchedCount }) => {
+                            const isSelected = selectedDatasetIds.includes(dataset.id);
                             return (
-                                <div
-                                    key={row.__id}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedRow((prev) =>
-                                            prev?.__id === row.__id ? null : row
-                                        );
-                                    }}
-                                    className={`p-2 border border-[hsl(var(--border))] rounded cursor-pointer truncate ${
-                                        isSelected
-                                            ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
-                                            : "bg-[hsl(var(--bg))] hover:bg-[hsl(var(--muted))]"
-                                    }`}
-                                    title={row.message}
-                                    role="button"
-                                    tabIndex={0}
-                                    onKeyDown={(e) => {
-                                        if (e.key === "Enter") {
-                                            e.stopPropagation();
-                                            setSelectedRow((prev) =>
-                                                prev?.__id === row.__id ? null : row
-                                            );
-                                        }
-                                    }}
-                                    aria-pressed={isSelected}
+                                <Button
+                                    key={dataset.id}
+                                    className={`w-full justify-between border ${isSelected ? "border-yellow-400" : "border-white"}`}
+                                    onClick={() => toggleDatasetSelection(dataset.id)}
                                 >
-                                    {row.message}
-                                </div>
+                                    <span className="truncate">{dataset.name}</span>
+                                    <span className="ml-2 text-xs opacity-80">
+                                        {matchedCount} log
+                                        {matchedCount === 1 ? "" : "s"}
+                                    </span>
+                                </Button>
                             );
                         })
                     )}
                 </div>
 
-                {rowsToShow < filteredRows.length && (
-                    <Button className="w-full mt-2" onClick={loadMoreRows}>
+                {datasetsToShow < matchingDatasets.length && (
+                    <Button className="w-full mt-2" onClick={loadMoreDatasets}>
                         Load More
                     </Button>
                 )}
             </div>
 
-            <div className="flex-1 flex items-center justify-center">
-                {allRows.length === 0 && (
-                    <div className="text-sm text-muted-foreground p-6 border rounded-md">
-                        No parsed records found in uploaded datasets. Add datasets on the Dataset
-                        page.
+            <div className="flex-1 my-4 mr-4">
+                {selectedDatasets.length === 0 ? (
+                    <div className="flex h-full items-center justify-center">
+                        <div className="text-sm text-muted-foreground p-6 border rounded-md">
+                            Toggle one or more datasets on the left to see them here.
+                        </div>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-1 lg:grid-cols-2 gap-3">
+                        {selectedDatasets.map((ds) => {
+                            const logsCount = (logsByDatasetId[ds.id] ?? []).length;
+                            return (
+                                <div
+                                    key={ds.id}
+                                    className="p-4 border border-yellow-400 rounded-lg bg-[hsl(var(--bg))] flex flex-col justify-between"
+                                >
+                                    <div>
+                                        <div className="font-semibold truncate mb-1">{ds.name}</div>
+                                        <div className="text-xs text-muted-foreground mb-1">
+                                            Path: {ds.path}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground mb-1">
+                                            Added: {ds.addedAt}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground mb-2">
+                                            Size:{" "}
+                                            {typeof ds.size === "number"
+                                                ? formatSize(ds.size)
+                                                : "Unknown"}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground mb-2">
+                                            Logs parsed: {logsCount}
+                                        </div>
+                                        {ds.content && (
+                                            <pre className="text-[10px] max-h-24 overflow-hidden whitespace-pre-wrap break-words border rounded p-1 bg-black/40">
+                                                {ds.content.slice(0, 300)}
+                                                {ds.content.length > 300 ? "..." : ""}
+                                            </pre>
+                                        )}
+                                    </div>
+                                    <div className="flex justify-between items-center mt-3">
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => toggleDatasetSelection(ds.id)}
+                                        >
+                                            Deselect
+                                        </Button>
+                                        {ds.content ? (
+                                            <Button size="sm" onClick={() => setViewerDataset(ds)}>
+                                                Inspect
+                                            </Button>
+                                        ) : (
+                                            <Button
+                                                size="sm"
+                                                onClick={async () => {
+                                                    try {
+                                                        const res = await fetchDatasetContent(
+                                                            ds.id,
+                                                            ds.path
+                                                        );
+
+                                                        if (res != null) {
+                                                            updateDataset(ds.id, {
+                                                                content: res,
+                                                            });
+                                                        }
+                                                    } catch (err) {
+                                                        console.error(
+                                                            "Failed to load dataset content",
+                                                            err
+                                                        );
+                                                    }
+                                                }}
+                                            >
+                                                Load
+                                            </Button>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
             </div>
 
-            {selectedDataset && (
+            {viewerDataset && (
                 <DatasetViewer
-                    open={!!selectedDataset}
-                    dataset={selectedDataset}
+                    open={!!viewerDataset}
+                    dataset={viewerDataset}
                     onOpenChange={(open) => {
-                        if (!open) setSelectedRow(null);
+                        if (!open) {
+                            setViewerDataset(null);
+                        }
                     }}
                 />
             )}
