@@ -44,7 +44,7 @@ type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
 const ITEMS_PER_LOAD = 20;
 
-const isJsonObject = (value: JsonValue): value is RawLog =>
+const isJsonObject = (value: unknown): value is RawLog =>
     typeof value === "object" && value !== null && !Array.isArray(value);
 
 const getFieldAsString = (obj: RawLog, field: string): string => {
@@ -217,7 +217,6 @@ const parseSQLQuery = (sql: string): Record<string, string> => {
     const result: Record<string, string> = {};
     const regex = /(\w+)\s*=\s*['"]([^'"]+)['"]/g;
     let match: RegExpExecArray | null;
-    // eslint-disable-next-line no-cond-assign
     while ((match = regex.exec(sql)) !== null) {
         const key = match[1];
         const value = match[2];
@@ -225,8 +224,6 @@ const parseSQLQuery = (sql: string): Record<string, string> => {
     }
     return result;
 };
-
-/* ---------- Component ---------- */
 
 export default function Analytics() {
     const { updateDataset } = useDatasetStore();

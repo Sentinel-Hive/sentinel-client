@@ -38,6 +38,14 @@ export type ClientListResponse = {
 };
 export type ClientOneResponse = { record: DbDataset };
 
+export type JsonValue =
+    | string
+    | number
+    | boolean
+    | null
+    | JsonValue[]
+    | { [key: string]: JsonValue };
+
 export type RawLog = {
     _raw?: string;
     id?: number;
