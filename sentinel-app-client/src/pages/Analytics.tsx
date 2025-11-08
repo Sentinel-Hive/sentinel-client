@@ -629,7 +629,23 @@ export default function Analytics() {
                                 <Button
                                     key={dataset.id}
                                     className={`w-full justify-between border ${isSelected ? "border-yellow-400" : "border-white"}`}
-                                    onClick={() => toggleDatasetSelection(dataset.id)}
+                                    onClick={async () => {
+                                        try {
+                                            const res = await fetchDatasetContent(
+                                                dataset.id,
+                                                dataset.path
+                                            );
+
+                                            if (res != null) {
+                                                updateDataset(dataset.id, {
+                                                    content: res,
+                                                });
+                                            }
+                                        } catch (err) {
+                                            console.error("Failed to load dataset content", err);
+                                        }
+                                        toggleDatasetSelection(dataset.id);
+                                    }}
                                 >
                                     <span className="truncate">{dataset.name}</span>
                                     <span className="ml-2 text-xs opacity-80">
@@ -697,36 +713,9 @@ export default function Analytics() {
                                         >
                                             Deselect
                                         </Button>
-                                        {ds.content ? (
-                                            <Button size="sm" onClick={() => setViewerDataset(ds)}>
-                                                Inspect
-                                            </Button>
-                                        ) : (
-                                            <Button
-                                                size="sm"
-                                                onClick={async () => {
-                                                    try {
-                                                        const res = await fetchDatasetContent(
-                                                            ds.id,
-                                                            ds.path
-                                                        );
-
-                                                        if (res != null) {
-                                                            updateDataset(ds.id, {
-                                                                content: res,
-                                                            });
-                                                        }
-                                                    } catch (err) {
-                                                        console.error(
-                                                            "Failed to load dataset content",
-                                                            err
-                                                        );
-                                                    }
-                                                }}
-                                            >
-                                                Load
-                                            </Button>
-                                        )}
+                                        <Button size="sm" onClick={() => setViewerDataset(ds)}>
+                                            Inspect
+                                        </Button>
                                     </div>
                                 </div>
                             );

@@ -42,7 +42,7 @@ export default function DatasetViewer({ open, dataset, onOpenChange, hideTitle =
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="w-96 max-h-[70vh] overflow-y-auto bg-black">
+            <DialogContent className="max-h-[70vh] overflow-y-auto bg-black border rounded border-yellow-400">
                 {hideTitle ? (
                     <VisuallyHidden>
                         <DialogTitle>{titleText}</DialogTitle>
@@ -66,7 +66,7 @@ export default function DatasetViewer({ open, dataset, onOpenChange, hideTitle =
                             <strong>Size:</strong> {dataset.size ? formatSize(dataset.size) : "???"}
                         </span>
                     </div>
-                    <pre className="text-xs whitespace-pre-wrap break-words border border-yellow-400 p-2 rounded">
+                    <pre className="text-xs whitespace-pre-wrap break-words border border-white p-2 rounded">
                         {dataset.content ? dataset.content : "No Content Could To Display"}
                     </pre>
                 </div>
