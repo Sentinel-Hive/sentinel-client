@@ -1,20 +1,12 @@
 // src/pages/Analytics.tsx
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
-import {
-    Select,
-    SelectTrigger,
-    SelectValue,
-    SelectContent,
-    SelectItem,
-} from "../components/ui/select";
-import { Checkbox } from "../components/ui/checkbox";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import LogUploader from "../components/LogUploader";
 import { Log } from "../types/types";
+import { ChevronsLeft, ChevronsRight, PanelTopClose, PanelBottomClose, X } from "lucide-react";
+import FilterPanel, { FilterField } from "../components/FilterPanel";
 
-const filterFields = [
+const filterFields: FilterField[] = [
     { key: "src_ip", label: "Source IP" },
     { key: "dest_ip", label: "Destination IP" },
     { key: "user", label: "User" },
@@ -27,26 +19,49 @@ const filterFields = [
     { key: "host", label: "Host" },
 ];
 
+const TITLE_H = 30;
+const DEFAULT_FILTERS_HEIGHT = 260;
+
+// helper to read arbitrary field off a log without using any
+function getLogField(log: Log | (Log & Record<string, unknown>), field: string): string {
+    const record = log as Record<string, unknown>;
+    const val = record[field];
+    return val == null ? "" : String(val);
+}
+
+// helper to get the best timestamp-like field
+function getLogTimestamp(log: Log | (Log & Record<string, unknown>)): string | undefined {
+    const record = log as Record<string, unknown>;
+    return (
+        log.timestamp ||
+        (typeof record.createdDateTime === "string" ? record.createdDateTime : undefined) ||
+        (typeof record._time === "string" ? record._time : undefined) ||
+        (typeof record.created_at === "string" ? record.created_at : undefined)
+    );
+}
+
 export default function Analytics() {
+    const [sidebarWidth, setSidebarWidth] = useState(300);
+    const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+    const [filtersHeight, setFiltersHeight] = useState(DEFAULT_FILTERS_HEIGHT);
+    const [isResizingFilters, setIsResizingFilters] = useState(false);
+    const [filtersCollapsed, setFiltersCollapsed] = useState(false);
+    const [logListCollapsed, setLogListCollapsed] = useState(false);
+
+    const sidebarRef = useRef<HTMLDivElement | null>(null);
+    const savedLogSplitRef = useRef<number>(DEFAULT_FILTERS_HEIGHT);
+
     const [logs, setLogs] = useState<Log[]>([]);
     const [displayedLogs, setDisplayedLogs] = useState<Log[]>([]);
     const [query, setQuery] = useState("");
     const [filters, setFilters] = useState<string[]>([]);
-    const [showFilters, setShowFilters] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
-    const [fieldFilters, setFieldFilters] = useState<Record<string, string>>({
-        src_ip: "",
-        dest_ip: "",
-        user: "",
-        event_type: "",
-        severity: "",
-        app: "",
-        dest_port: "",
-        src_port: "",
-        status: "",
-        host: "",
-    });
+    const [fieldFilters, setFieldFilters] = useState<Record<string, string[]>>(
+        Object.fromEntries(filterFields.map((f) => [f.key, []]))
+    );
     const [dateFrom, setDateFrom] = useState<string | null>(null);
     const [dateTo, setDateTo] = useState<string | null>(null);
     const [sortOption, setSortOption] = useState("Newest");
@@ -56,31 +71,47 @@ export default function Analytics() {
     const [loadedFilterOptions, setLoadedFilterOptions] = useState<Record<string, number>>(
         Object.fromEntries(filterFields.map((f) => [f.key, ITEMS_PER_LOAD]))
     );
+    const [collapsedFilterSections, setCollapsedFilterSections] = useState<Record<string, boolean>>(
+        Object.fromEntries(
+            filterFields
+                .map((f) => [f.key, false] as const)
+                .concat([["date_range", false] as const, ["type", false] as const])
+        )
+    );
 
     const clearAll = () => {
         setQuery("");
         setFilters([]);
-        setFieldFilters({
-            src_ip: "",
-            dest_ip: "",
-            user: "",
-            event_type: "",
-            severity: "",
-            app: "",
-            dest_port: "",
-            src_port: "",
-            status: "",
-            host: "",
-        });
+        setFieldFilters(Object.fromEntries(filterFields.map((f) => [f.key, []])));
         setDateFrom(null);
         setDateTo(null);
-        setShowFilters(false);
         setLogsToShow(500);
+    };
+
+    const collapseAllFilterSections = () => {
+        setCollapsedFilterSections(
+            Object.fromEntries(
+                filterFields
+                    .map((f) => [f.key, true] as const)
+                    .concat([["date_range", true] as const, ["type", true] as const])
+            )
+        );
+    };
+
+    const expandAllFilterSections = () => {
+        setCollapsedFilterSections(
+            Object.fromEntries(
+                filterFields
+                    .map((f) => [f.key, false] as const)
+                    .concat([["date_range", false] as const, ["type", false] as const])
+            )
+        );
     };
 
     const handleLogsProcessed = (processedLogs: Log[]) => {
         setLogs(processedLogs);
         setDisplayedLogs(processedLogs.slice(0, logsToShow));
+        setSelectedLog(null);
     };
 
     const handleUploadStart = () => {
@@ -88,32 +119,27 @@ export default function Analytics() {
         setUploadProgress(0);
         setLogs([]);
         setDisplayedLogs([]);
+        setSelectedLog(null);
     };
+    const handleUploadProgress = (progress: number) => setUploadProgress(progress);
+    const handleUploadComplete = () => setUploading(false);
 
-    const handleUploadProgress = (progress: number) => {
-        setUploadProgress(progress);
-    };
+    const loadMoreLogs = () => setLogsToShow((prev) => prev + 500);
 
-    const handleUploadComplete = () => {
-        setUploading(false);
-    };
-
-    const loadMoreLogs = () => {
-        setLogsToShow((prev) => {
-            const newLimit = prev + 500;
-            setDisplayedLogs(logs.slice(0, newLimit));
-            return newLimit;
-        });
-    };
-
-    const toggleFilter = (type: string) => {
+    const toggleTypeFilter = (type: string) => {
         setFilters((prev) =>
             prev.includes(type) ? prev.filter((f) => f !== type) : [...prev, type]
         );
     };
 
-    const setFieldFilter = (field: string, value: string) => {
-        setFieldFilters((prev: Record<string, string>) => ({ ...prev, [field]: value }));
+    const toggleFieldFilter = (field: string, value: string) => {
+        setFieldFilters((prev) => {
+            const current = prev[field] || [];
+            if (current.includes(value)) {
+                return { ...prev, [field]: current.filter((v) => v !== value) };
+            }
+            return { ...prev, [field]: [...current, value] };
+        });
     };
 
     const loadMoreFilterOptions = (field: string) => {
@@ -124,21 +150,16 @@ export default function Analytics() {
     };
 
     const uniqueValues = (field: string) =>
-        Array.from(
-            new Set(
-                logs.map((l) => String((l as Record<string, unknown>)[field] ?? "")).filter(Boolean)
-            )
-        );
+        Array.from(new Set(logs.map((l) => getLogField(l, field)).filter((s) => s.length > 0)));
 
-    const parseSQLQuery = (query: string): Record<string, string> => {
-        const filters: Record<string, string> = {};
+    const parseSQLQuery = (q: string): Record<string, string> => {
+        const out: Record<string, string> = {};
         const regex = /(\w+)\s*=\s*['"]([^'"]+)['"]/g;
-        let match;
-        while ((match = regex.exec(query)) !== null) {
-            const [_, key, value] = match;
-            filters[key] = value;
+        let m: RegExpExecArray | null;
+        while ((m = regex.exec(q)) !== null) {
+            out[m[1]] = m[2];
         }
-        return filters;
+        return out;
     };
 
     const filteredLogs = useMemo(() => {
@@ -146,60 +167,98 @@ export default function Analytics() {
         const list = logs
             .filter((log) => {
                 for (const [field, value] of Object.entries(sqlFilters)) {
-                    const logValue = String(
-                        (log as Record<string, unknown>)[field] ?? ""
-                    ).toLowerCase();
-                    if (!logValue.includes(value.toLowerCase())) return false;
+                    const v = getLogField(log, field).toLowerCase();
+                    if (!v.includes(value.toLowerCase())) return false;
                 }
                 return true;
             })
-            .filter((log) => (filters.length > 0 ? filters.includes(log.type) : true))
+            .filter((log) => (filters.length ? filters.includes(log.type) : true))
             .filter((log) => {
                 if (dateFrom || dateTo) {
-                    const ts = log.timestamp ? new Date(log.timestamp).getTime() : null;
+                    const tsRaw = getLogTimestamp(log);
+                    const ts = tsRaw ? new Date(tsRaw).getTime() : null;
                     if (ts) {
-                        if (dateFrom) {
-                            const from = new Date(dateFrom).getTime();
-                            if (ts < from) return false;
-                        }
+                        if (dateFrom && ts < new Date(dateFrom).getTime()) return false;
                         if (dateTo) {
-                            const toDate = new Date(dateTo);
-                            toDate.setHours(23, 59, 59, 999);
-                            const to = toDate.getTime();
-                            if (ts > to) return false;
+                            const d = new Date(dateTo);
+                            d.setHours(23, 59, 59, 999);
+                            if (ts > d.getTime()) return false;
                         }
                     }
                 }
 
-                for (const [field, value] of Object.entries(fieldFilters)) {
-                    if (value && value.trim() !== "") {
-                        const logVal = String(
-                            (log as Record<string, unknown>)[field] ?? ""
-                        ).toLowerCase();
-                        if (!logVal.includes(value.toLowerCase())) return false;
+                for (const ff of filterFields) {
+                    const selections = fieldFilters[ff.key] || [];
+                    if (selections.length > 0) {
+                        const logVal = getLogField(log, ff.key).toLowerCase();
+                        const matched = selections.some((sel) => logVal === sel.toLowerCase());
+                        if (!matched) return false;
                     }
                 }
                 return true;
             });
 
         const sorted = list.sort((a, b) => {
-            const ta = a.timestamp ? new Date(a.timestamp).getTime() : null;
-            const tb = b.timestamp ? new Date(b.timestamp).getTime() : null;
+            const taRaw = getLogTimestamp(a);
+            const tbRaw = getLogTimestamp(b);
+            const ta = taRaw ? new Date(taRaw).getTime() : null;
+            const tb = tbRaw ? new Date(tbRaw).getTime() : null;
             if (sortOption === "A-Z") return a.message.localeCompare(b.message);
             if (sortOption === "Z-A") return b.message.localeCompare(a.message);
             if (sortOption === "Oldest") {
                 if (ta != null && tb != null) return ta - tb;
-                return a.id - b.id;
+                return 0;
             }
-            // Newest
             if (ta != null && tb != null) return tb - ta;
-            return b.id - a.id;
+            return 0;
         });
 
-        setDisplayedLogs(sorted.slice(0, logsToShow));
         return sorted;
-    }, [logs, query, filters, fieldFilters, dateFrom, dateTo, sortOption, logsToShow]);
+    }, [logs, query, filters, fieldFilters, dateFrom, dateTo, sortOption]);
 
+    useEffect(() => {
+        setDisplayedLogs(filteredLogs.slice(0, logsToShow));
+    }, [filteredLogs, logsToShow]);
+
+    // sidebar vertical resize
+    useEffect(() => {
+        const onMove = (e: MouseEvent) => {
+            if (!isResizingSidebar || sidebarCollapsed) return;
+            const min = 220;
+            const max = window.innerWidth - 160;
+            const w = Math.min(Math.max(e.clientX, min), max);
+            setSidebarWidth(w);
+        };
+        const onUp = () => setIsResizingSidebar(false);
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup", onUp);
+        return () => {
+            window.removeEventListener("mousemove", onMove);
+            window.removeEventListener("mouseup", onUp);
+        };
+    }, [isResizingSidebar, sidebarCollapsed]);
+
+    // filters/logs horizontal resize
+    useEffect(() => {
+        const onMove = (e: MouseEvent) => {
+            if (!isResizingFilters || !sidebarRef.current) return;
+            const top = sidebarRef.current.getBoundingClientRect().top;
+            const h = sidebarRef.current.getBoundingClientRect().height;
+            const y = e.clientY - top;
+            const min = TITLE_H + 2;
+            const max = h - (TITLE_H + 2);
+            setFiltersHeight(Math.min(Math.max(y, min), max));
+        };
+        const onUp = () => setIsResizingFilters(false);
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup", onUp);
+        return () => {
+            window.removeEventListener("mousemove", onMove);
+            window.removeEventListener("mouseup", onUp);
+        };
+    }, [isResizingFilters]);
+
+    // esc to deselect
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (e.key === "Escape") setSelectedLog(null);
@@ -208,224 +267,330 @@ export default function Analytics() {
         return () => window.removeEventListener("keydown", onKey);
     }, []);
 
+    const handleCollapseFiltersPane = () => {
+        setFiltersCollapsed((prev) => {
+            const next = !prev;
+            if (!next) {
+                setFiltersHeight((h) => (h < TITLE_H + 10 ? DEFAULT_FILTERS_HEIGHT : h));
+            }
+            if (next) setLogListCollapsed(false);
+            return next;
+        });
+    };
+
+    const handleCollapseLogList = () => {
+        setLogListCollapsed((prev) => {
+            const next = !prev;
+            if (next) {
+                // collapsing
+                savedLogSplitRef.current = filtersHeight;
+                if (sidebarRef.current) {
+                    const h = sidebarRef.current.getBoundingClientRect().height;
+                    setFiltersHeight(h - TITLE_H);
+                }
+            } else {
+                // reopening
+                const restored = savedLogSplitRef.current;
+                setFiltersHeight(() => {
+                    const min = TITLE_H + 10;
+                    return restored < min ? DEFAULT_FILTERS_HEIGHT : restored;
+                });
+            }
+            return next;
+        });
+    };
+
+    const handleToggleSidebar = () => setSidebarCollapsed((prev) => !prev);
+
+    const resizing = isResizingSidebar || isResizingFilters;
+
+    // build filter chips
+    const chips: Array<{ id: string; label: string; onRemove: () => void }> = [];
+    for (const ff of filterFields) {
+        const selectedVals = fieldFilters[ff.key] || [];
+        selectedVals.forEach((val) => {
+            chips.push({
+                id: `field:${ff.key}:${val}`,
+                label: `${ff.label}: ${val}`,
+                onRemove: () => toggleFieldFilter(ff.key, val),
+            });
+        });
+    }
+    if (dateFrom || dateTo) {
+        chips.push({
+            id: "date_range",
+            label: `Date: ${dateFrom ?? "any"} → ${dateTo ?? "any"}`,
+            onRemove: () => {
+                setDateFrom(null);
+                setDateTo(null);
+            },
+        });
+    }
+    filters.forEach((t) => {
+        chips.push({
+            id: `type:${t}`,
+            label: `Type: ${t}`,
+            onRemove: () => toggleTypeFilter(t),
+        });
+    });
+    if (query.trim() !== "") {
+        chips.push({
+            id: "query",
+            label: `Query: ${query.trim()}`,
+            onRemove: () => setQuery(""),
+        });
+    }
+
     return (
-        <div className="flex">
-            <div className="flex-1 max-w-sm md:max-w-md lg:max-w-lg xl:max-w-xl 2xl:max-w-2xl ml-0 mr-4 my-4 p-4 bg-[hsl(var(--muted))] border border-[hsl(var(--border))] rounded-lg">
-                <Input
-                    value={query}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
-                    placeholder="Enter SQL-like query (e.g., src_ip='192.168.1.1' AND user='admin')"
-                    className="w-full mb-2"
+        <div className="fixed inset-x-0 top-[64px] bottom-0 bg-black text-white flex overflow-hidden z-10">
+            {resizing && (
+                <div
+                    className={`fixed inset-0 z-[9999] bg-transparent ${
+                        isResizingSidebar ? "cursor-col-resize" : "cursor-row-resize"
+                    } select-none`}
                 />
+            )}
 
-                <div className="mb-2">
-                    <div className="flex items-center justify-between">
-                        <label className="block font-semibold">Filters</label>
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setShowFilters((s) => !s)}
+            {!sidebarCollapsed && (
+                <div
+                    ref={sidebarRef}
+                    className="relative h-full bg-neutral-900 border-r border-neutral-700 flex flex-col transition-all duration-150 pr-[6px]"
+                    style={{ width: sidebarWidth }}
+                >
+                    {/* FILTERS SECTION */}
+                    {!filtersCollapsed ? (
+                        <div
+                            className="flex flex-col"
+                            style={{
+                                height: logListCollapsed
+                                    ? `calc(100% - ${TITLE_H}px)`
+                                    : filtersHeight,
+                            }}
                         >
-                            Filter
-                        </Button>
-                    </div>
-
-                    {showFilters && (
-                        <div className="mt-2 space-y-3 p-3 bg-[hsl(var(--bg))] border border-[hsl(var(--border))] rounded">
-                            {filterFields.map((f) => (
-                                <div key={f.key}>
-                                    <div className="text-sm font-medium mb-1">{f.label}</div>
-                                    <div className="flex flex-wrap gap-2">
-                                        {uniqueValues(f.key)
-                                            .slice(0, loadedFilterOptions[f.key])
-                                            .map((val) => {
-                                                const selected = fieldFilters[f.key] === val;
-                                                return (
-                                                    <Button
-                                                        key={val}
-                                                        size="sm"
-                                                        variant={selected ? "default" : "ghost"}
-                                                        onClick={() =>
-                                                            setFieldFilter(
-                                                                f.key,
-                                                                selected ? "" : val
-                                                            )
-                                                        }
-                                                    >
-                                                        {val}
-                                                    </Button>
-                                                );
-                                            })}
-                                    </div>
-                                    {uniqueValues(f.key).length > loadedFilterOptions[f.key] && (
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            className="mt-2"
-                                            onClick={() => loadMoreFilterOptions(f.key)}
-                                        >
-                                            Load More
-                                        </Button>
-                                    )}
-                                </div>
-                            ))}
-
-                            <div>
-                                <div className="text-sm font-medium mb-1">Date Range (Between)</div>
-                                <div className="flex items-center gap-2">
-                                    <input
-                                        type="date"
-                                        value={dateFrom ?? ""}
-                                        onChange={(e) => setDateFrom(e.target.value || null)}
-                                        className="p-2 rounded bg-[hsl(var(--muted))] text-sm"
-                                    />
-                                    <span>and</span>
-                                    <input
-                                        type="date"
-                                        value={dateTo ?? ""}
-                                        onChange={(e) => setDateTo(e.target.value || null)}
-                                        className="p-2 rounded bg-[hsl(var(--muted))] text-sm"
-                                    />
+                            <div className="flex items-center justify-between h-[30px] px-3 bg-neutral-900/95 border-b border-neutral-700 sticky top-0 z-10">
+                                <span className="text-xs font-semibold text-yellow-400">
+                                    Filters
+                                </span>
+                                <div className="flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={collapseAllFilterSections}
+                                        className="h-6 px-2 text-[10px] bg-black border border-neutral-700 rounded text-yellow-400"
+                                    >
+                                        Collapse All
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={expandAllFilterSections}
+                                        className="h-6 px-2 text-[10px] bg-black border border-neutral-700 rounded text-yellow-400"
+                                    >
+                                        Expand All
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleCollapseFiltersPane}
+                                        className="h-6 w-6 flex items-center justify-center rounded bg-black border border-neutral-700"
+                                    >
+                                        <PanelTopClose className="w-4 h-4 text-yellow-400" />
+                                    </button>
                                 </div>
                             </div>
-                            <div className="pt-2">
-                                <div className="text-sm font-medium mb-1">Type</div>
-                                <div className="flex gap-3">
-                                    {["info", "error", "warning"].map((type) => (
-                                        <label
-                                            key={type}
-                                            className="inline-flex items-center gap-2 text-sm"
-                                        >
-                                            <Checkbox
-                                                checked={filters.includes(type)}
-                                                onCheckedChange={() => toggleFilter(type)}
-                                            />
-                                            {type}
-                                        </label>
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="flex gap-2">
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                        setFieldFilters({
-                                            src_ip: "",
-                                            dest_ip: "",
-                                            user: "",
-                                            event_type: "",
-                                            severity: "",
-                                            app: "",
-                                            dest_port: "",
-                                            src_port: "",
-                                            status: "",
-                                            host: "",
-                                        });
-                                        setDateFrom(null);
-                                        setDateTo(null);
-                                    }}
-                                >
-                                    Clear
-                                </Button>
-                            </div>
-                        </div>
-                    )}
-                </div>
 
-                <Select value={sortOption} onValueChange={(v) => setSortOption(v)}>
-                    <SelectTrigger className="w-full mb-2">
-                        <SelectValue placeholder="Sort" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="Newest">Newest</SelectItem>
-                        <SelectItem value="Oldest">Oldest</SelectItem>
-                        <SelectItem value="A-Z">A-Z</SelectItem>
-                        <SelectItem value="Z-A">Z-A</SelectItem>
-                    </SelectContent>
-                </Select>
-
-                <Button className="w-full mt-2 mb-2" onClick={clearAll}>
-                    View All
-                </Button>
-
-                <div className="space-y-2 max-h-[30vh] overflow-y-auto">
-                    {displayedLogs.length === 0 ? (
-                        <div className="text-sm text-gray-500 italic text-center py-4">
-                            No more logs.
+                            <FilterPanel
+                                query={query}
+                                onQueryChange={setQuery}
+                                sortOption={sortOption}
+                                onSortChange={setSortOption}
+                                onClearAll={clearAll}
+                                onCollapseAll={collapseAllFilterSections}
+                                filterFields={filterFields}
+                                collapsedSections={collapsedFilterSections}
+                                toggleSection={(key) =>
+                                    setCollapsedFilterSections((prev) => ({
+                                        ...prev,
+                                        [key]: !prev[key],
+                                    }))
+                                }
+                                uniqueValues={uniqueValues}
+                                fieldFilters={fieldFilters}
+                                toggleFieldValue={toggleFieldFilter}
+                                dateFrom={dateFrom}
+                                dateTo={dateTo}
+                                onDateFromChange={setDateFrom}
+                                onDateToChange={setDateTo}
+                                typeFilters={filters}
+                                toggleTypeFilter={toggleTypeFilter}
+                                loadedFilterOptions={loadedFilterOptions}
+                                loadMoreFilterOptions={loadMoreFilterOptions}
+                            />
                         </div>
                     ) : (
-                        displayedLogs.map((log) => {
-                            const isSelected = selectedLog?.id === log.id;
-                            return (
-                                <div
-                                    key={log.id}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedLog((prev) =>
-                                            prev?.id === log.id ? null : log
-                                        );
-                                    }}
-                                    className={`p-2 border border-[hsl(var(--border))] rounded cursor-pointer truncate ${
-                                        isSelected
-                                            ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
-                                            : "bg-[hsl(var(--bg))] hover:bg-[hsl(var(--muted))]"
-                                    }`}
-                                    title={log.message}
-                                    role="button"
-                                    tabIndex={0}
-                                    onKeyDown={(e) => {
-                                        if (e.key === "Enter") {
-                                            e.stopPropagation();
-                                            setSelectedLog((prev) =>
-                                                prev?.id === log.id ? null : log
-                                            );
-                                        }
-                                    }}
-                                    aria-pressed={isSelected}
-                                >
-                                    {log.message}
-                                </div>
-                            );
-                        })
+                        <div className="flex items-center justify-between h-[30px] px-3 bg-neutral-900/95 border-b border-neutral-700">
+                            <span className="text-xs font-semibold text-yellow-400">Filters</span>
+                            <button
+                                type="button"
+                                onClick={handleCollapseFiltersPane}
+                                className="h-6 w-6 flex items-center justify-center rounded bg-black border border-neutral-700"
+                            >
+                                <PanelTopClose className="w-4 h-4 text-yellow-400 rotate-180" />
+                            </button>
+                        </div>
                     )}
+
+                    {/* horizontal resizer */}
+                    {!filtersCollapsed && !logListCollapsed && (
+                        <div
+                            onMouseDown={() => setIsResizingFilters(true)}
+                            className="absolute left-0 bg-neutral-700/70 hover:bg-yellow-400/70 cursor-row-resize z-30"
+                            style={{
+                                top: filtersHeight - 2,
+                                height: 6,
+                                width: "calc(100% - 8px)", // leave room for scrollbar
+                            }}
+                        />
+                    )}
+
+                    {/* LOGS SECTION */}
+                    {!logListCollapsed ? (
+                        <div className="flex-1 flex flex-col">
+                            <div className="flex items-center justify-between h-[30px] px-3 bg-neutral-900/95 border-b border-neutral-700 sticky top-0 z-10">
+                                <span className="text-xs font-semibold text-yellow-400">Logs</span>
+                                <button
+                                    type="button"
+                                    onClick={handleCollapseLogList}
+                                    className="h-6 w-6 flex items-center justify-center rounded bg-black border border-neutral-700"
+                                >
+                                    <PanelBottomClose className="w-4 h-4 text-yellow-400" />
+                                </button>
+                            </div>
+                            <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-2 space-y-2">
+                                {displayedLogs.length === 0 ? (
+                                    <div className="text-sm text-neutral-400 text-center py-4">
+                                        No logs.
+                                    </div>
+                                ) : (
+                                    displayedLogs.map((log) => {
+                                        const isSelected = selectedLog?.id === log.id;
+                                        return (
+                                            <div
+                                                key={log.id}
+                                                onClick={() =>
+                                                    setSelectedLog((prev) =>
+                                                        prev?.id === log.id ? null : log
+                                                    )
+                                                }
+                                                className={`p-2 rounded border cursor-pointer ${
+                                                    isSelected
+                                                        ? "bg-yellow-400 text-black border-yellow-300"
+                                                        : "bg-neutral-800 border-neutral-700 hover:bg-neutral-700"
+                                                }`}
+                                            >
+                                                {log.message}
+                                            </div>
+                                        );
+                                    })
+                                )}
+                                {logsToShow < filteredLogs.length && (
+                                    <Button
+                                        onClick={loadMoreLogs}
+                                        className="w-full bg-neutral-800 border border-neutral-600 hover:bg-neutral-700"
+                                    >
+                                        Load More
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="flex items-center justify-between h-[30px] px-3 bg-neutral-900/95 border-t border-neutral-700">
+                            <span className="text-xs font-semibold text-yellow-400">Logs</span>
+                            <button
+                                type="button"
+                                onClick={handleCollapseLogList}
+                                className="h-6 w-6 flex items-center justify-center rounded bg-black border border-neutral-700"
+                            >
+                                <PanelBottomClose className="w-4 h-4 text-yellow-400 rotate-180" />
+                            </button>
+                        </div>
+                    )}
+
+                    {/* vertical resizer with padding so it doesn't cover scroll bars */}
+                    <div
+                        onMouseDown={() => setIsResizingSidebar(true)}
+                        className="absolute top-0 right-[-3px] h-full w-[6px] bg-neutral-800/80 hover:bg-yellow-400/70 cursor-col-resize z-40"
+                    />
+                </div>
+            )}
+
+            {/* RIGHT SIDE */}
+            <div className="flex-1 min-h-0 flex flex-col bg-black">
+                <div className="px-4 py-2 text-sm text-neutral-400 flex items-center gap-3 border-b border-neutral-800">
+                    <button
+                        type="button"
+                        onClick={handleToggleSidebar}
+                        className="h-8 px-3 rounded bg-neutral-900 border border-neutral-700 flex items-center gap-2"
+                    >
+                        {sidebarCollapsed ? (
+                            <>
+                                <ChevronsRight className="w-4 h-4 text-yellow-400" />
+                                <span className="text-xs text-yellow-400">Show panel</span>
+                            </>
+                        ) : (
+                            <>
+                                <ChevronsLeft className="w-4 h-4 text-yellow-400" />
+                                <span className="text-xs text-yellow-400">Hide panel</span>
+                            </>
+                        )}
+                    </button>
+                    <span>
+                        {filteredLogs.length} filtered / {logs.length} total
+                    </span>
+                    <div className="flex-1 flex gap-2 overflow-x-auto no-scrollbar">
+                        {chips.map((chip) => (
+                            <div
+                                key={chip.id}
+                                className="flex items-center gap-1 bg-neutral-900 border border-yellow-400/50 rounded-full px-3 py-1 text-xs whitespace-nowrap"
+                            >
+                                <span className="text-yellow-400">{chip.label}</span>
+                                <button
+                                    type="button"
+                                    onClick={chip.onRemove}
+                                    className="h-4 w-4 flex items-center justify-center rounded-full bg-black border border-yellow-400/60"
+                                    aria-label="Remove filter"
+                                >
+                                    <X className="w-3 h-3 text-yellow-400" />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
                 </div>
 
-                {logsToShow < filteredLogs.length && (
-                    <Button className="w-full mt-2" onClick={loadMoreLogs}>
-                        Load More
-                    </Button>
-                )}
-            </div>
-
-            <div className="flex-1 flex items-center justify-center">
-                {logs.length === 0 && (
-                    <LogUploader
-                        onLogsProcessed={handleLogsProcessed}
-                        uploading={uploading}
-                        uploadProgress={uploadProgress}
-                        onUploadStart={handleUploadStart}
-                        onUploadProgress={handleUploadProgress}
-                        onUploadComplete={handleUploadComplete}
-                    />
-                )}
-            </div>
-
-            <Dialog
-                open={!!selectedLog}
-                onOpenChange={(open) => {
-                    if (!open) setSelectedLog(null);
-                }}
-            >
-                <DialogContent className="w-96 max-h-[70vh] overflow-y-auto">
-                    <DialogHeader>
-                        <DialogTitle id="log-details-title">Log Details</DialogTitle>
-                    </DialogHeader>
-                    <div className="mt-2">
-                        <p className="mb-4">{selectedLog?.message}</p>
+                {logs.length === 0 ? (
+                    <div className="flex-1 min-h-0 flex items-center justify-center">
+                        <div className="w-full max-w-md">
+                            <LogUploader
+                                onLogsProcessed={handleLogsProcessed}
+                                uploading={uploading}
+                                uploadProgress={uploadProgress}
+                                onUploadStart={handleUploadStart}
+                                onUploadProgress={handleUploadProgress}
+                                onUploadComplete={handleUploadComplete}
+                            />
+                        </div>
                     </div>
-                </DialogContent>
-            </Dialog>
+                ) : (
+                    <div className="flex-1 min-h-0 m-4 bg-neutral-900 border border-neutral-700 rounded-lg p-4 overflow-auto">
+                        {selectedLog ? (
+                            <pre className="text-xs font-mono whitespace-pre-wrap break-all text-neutral-100">
+                                {JSON.stringify(selectedLog, null, 2)}
+                            </pre>
+                        ) : (
+                            <div className="text-sm text-neutral-400">
+                                Select a log to view JSON.
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
         </div>
     );
 }
