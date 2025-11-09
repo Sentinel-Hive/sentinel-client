@@ -4,6 +4,7 @@ import { Button } from "../components/ui/button";
 import LogUploader from "../components/LogUploader";
 import { Log } from "../types/types";
 import { ChevronsLeft, ChevronsRight, PanelTopClose, PanelBottomClose, X } from "lucide-react";
+import AnalyticsHeader from "../components/AnalyticsHeader";
 import FilterPanel, { FilterField } from "../components/FilterPanel";
 
 const filterFields: FilterField[] = [
@@ -342,8 +343,13 @@ export default function Analytics() {
     }
 
     return (
-        <div className="fixed inset-x-0 top-[64px] bottom-0 bg-black text-white flex overflow-hidden z-10">
-            {resizing && (
+        <div className="h-full flex flex-col">
+            <div className="fixed top-[61px] inset-x-0 bg-neutral-900 z-10">
+                <AnalyticsHeader />
+            </div>
+            <div className="flex-1 bg-black pt-10">
+                <div className="fixed inset-x-0 top-24 bottom-0 bg-black text-white flex overflow-hidden">
+                    {resizing && (
                 <div
                     className={`fixed inset-0 z-[9999] bg-transparent ${
                         isResizingSidebar ? "cursor-col-resize" : "cursor-row-resize"
@@ -590,7 +596,9 @@ export default function Analytics() {
                         )}
                     </div>
                 )}
+                </div>
             </div>
         </div>
+    </div>
     );
 }
