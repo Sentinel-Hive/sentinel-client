@@ -95,10 +95,13 @@ export default function LogUploader({
 
                         const appName =
                             (source.appDisplayName as string | undefined) ??
-                            (source.resourceDisplayName as string | undefined);
-                        const eventType = Array.isArray(source.eventtype)
-                            ? source.eventtype.join(", ")
-                            : (source.eventtype as string | undefined);
+                            (source.resourceDisplayName as string | undefined) ??
+                            (source.app as string | undefined);
+                        const eventType = (
+                            Array.isArray(source.eventtype)
+                                ? source.eventtype.join(", ")
+                                : (source.eventtype as string | undefined)
+                        ) || (source.evt_type as string | undefined) || (source.event_type as string | undefined);
 
                         const msg =
                             appName ||
@@ -113,6 +116,7 @@ export default function LogUploader({
                             "info";
 
                         const ts =
+                            (source.timestamp as string | undefined) ||
                             (source.createdDateTime as string | undefined) ||
                             (source._time as string | undefined) ||
                             undefined;
@@ -130,7 +134,7 @@ export default function LogUploader({
                         const statusString =
                             typeof source.status === "object" && source.status
                                 ? (source.status as { failureReason?: string }).failureReason
-                                : undefined;
+                                : (source.status as string | undefined);
 
                         return {
                             id,
@@ -144,7 +148,10 @@ export default function LogUploader({
                                 (source.userPrincipalName as string | undefined) ||
                                 undefined,
                             event_type: eventType,
-                            severity: (source.riskLevelDuringSignIn as string | undefined) || "",
+                            severity:
+                                (source.severity as string | undefined) ||
+                                (source.riskLevelDuringSignIn as string | undefined) ||
+                                "",
                             app: appName,
                             dest_port:
                                 source.dest_port !== undefined

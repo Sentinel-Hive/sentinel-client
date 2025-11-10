@@ -8,7 +8,7 @@ import {
 } from "../components/ui/select";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import { Checkbox } from "../components/ui/checkbox";
+// Checkbox removed with deprecated Type filter
 import { ChevronDown, ChevronUp } from "lucide-react";
 
 export type FilterField = {
@@ -33,8 +33,6 @@ interface FilterPanelProps {
     dateTo: string | null;
     onDateFromChange: (v: string | null) => void;
     onDateToChange: (v: string | null) => void;
-    typeFilters: string[];
-    toggleTypeFilter: (val: string) => void;
     loadedFilterOptions: Record<string, number>;
     loadMoreFilterOptions: (field: string) => void;
 }
@@ -56,8 +54,6 @@ export default function FilterPanel({
     dateTo,
     onDateFromChange,
     onDateToChange,
-    typeFilters,
-    toggleTypeFilter,
     loadedFilterOptions,
     loadMoreFilterOptions,
 }: FilterPanelProps) {
@@ -188,34 +184,7 @@ export default function FilterPanel({
                 );
             })}
 
-            {/* Type filter */}
-            <div className="bg-neutral-800 border border-neutral-700 rounded-lg">
-                <button
-                    type="button"
-                    onClick={() => toggleSection("type")}
-                    className="flex items-center justify-between w-full bg-black text-yellow-400 rounded-t-lg px-2 py-1"
-                >
-                    <span className="text-sm font-semibold">Type</span>
-                    {collapsedSections["type"] ? (
-                        <ChevronDown className="w-4 h-4" />
-                    ) : (
-                        <ChevronUp className="w-4 h-4" />
-                    )}
-                </button>
-                {!collapsedSections["type"] && (
-                    <div className="p-2 flex gap-3 flex-wrap text-sm">
-                        {["info", "error", "warning", "high", "low"].map((type) => (
-                            <label key={type} className="inline-flex items-center gap-2">
-                                <Checkbox
-                                    checked={typeFilters.includes(type)}
-                                    onCheckedChange={() => toggleTypeFilter(type)}
-                                />
-                                {type}
-                            </label>
-                        ))}
-                    </div>
-                )}
-            </div>
+            {/* Type filter removed per requirements (duplicate / deprecated) */}
         </div>
     );
 }

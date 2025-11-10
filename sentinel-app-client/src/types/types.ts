@@ -55,7 +55,7 @@ export enum RelationshipTypes {
     USER_EVENT = "User Event",
     APP_EVENT = "App Event",
     HOST_EVENT = "Host Event",
-    THREAT_INDICATOR = "Threat Indicator"
+    SEVERITY_LEVEL = "Severity Level"
 }
 
 export type NodeData = {
@@ -64,6 +64,7 @@ export type NodeData = {
     value: string;
     dataset: string;
     details: Log;
+    isStarCenter?: boolean; // marks the center node when rendering star topology
 };
 
 export type LinkData = {

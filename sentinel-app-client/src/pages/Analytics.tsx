@@ -7,6 +7,7 @@ import { ChevronsLeft, ChevronsRight, PanelTopClose, PanelBottomClose, X } from 
 import AnalyticsHeader from "../components/AnalyticsHeader";
 import FilterPanel, { FilterField } from "../components/FilterPanel";
 
+// Include both event_type and evt_type so uploaded datasets using either key can be filtered.
 const filterFields: FilterField[] = [
     { key: "src_ip", label: "Source IP" },
     { key: "dest_ip", label: "Destination IP" },
@@ -23,11 +24,48 @@ const filterFields: FilterField[] = [
 const TITLE_H = 30;
 const DEFAULT_FILTERS_HEIGHT = 260;
 
-// helper to read arbitrary field off a log without using any
+// helper to read arbitrary field off a log with alias support
 function getLogField(log: Log | (Log & Record<string, unknown>), field: string): string {
     const record = log as Record<string, unknown>;
-    const val = record[field];
-    return val == null ? "" : String(val);
+    const aliases: Record<string, string[]> = {
+        // event type variants
+        event_type: ["evt_type", "eventtype"],
+        evt_type: ["event_type", "eventtype"],
+        // application display variants
+        app: ["appDisplayName", "resourceDisplayName"],
+        // user
+        user: ["userPrincipalName"],
+        // IPs
+        src_ip: ["ipAddress"],
+        dest_ip: ["dest"],
+        // severity naming drift
+        severity: ["riskLevelDuringSignIn"],
+        // status can be string or object; handled below
+        status: [],
+        // ports sometimes numeric
+        dest_port: [],
+        src_port: [],
+        // host passthrough
+        host: [],
+    };
+
+    const tryKeys = [field].concat(aliases[field] || []);
+    for (const k of tryKeys) {
+        const v = record[k];
+        if (v == null) continue;
+        if (k === "status") {
+            if (typeof v === "object" && v) {
+                const fr = (v as { failureReason?: string }).failureReason;
+                if (fr) return String(fr);
+            }
+            return String(v);
+        }
+        if (k === "eventtype") {
+            if (Array.isArray(v)) return v.filter(Boolean).join(", ");
+        }
+        return String(v);
+    }
+    return "";
 }
 
 // helper to get the best timestamp-like field
@@ -39,6 +77,36 @@ function getLogTimestamp(log: Log | (Log & Record<string, unknown>)): string | u
         (typeof record._time === "string" ? record._time : undefined) ||
         (typeof record.created_at === "string" ? record.created_at : undefined)
     );
+}
+
+// Build display name: app + evt_type/event_type if available, else fallback to message
+function formatEventType(evtRaw: string): string {
+    if (!evtRaw) return "";
+    // Take last segment after dot if dotted (e.g., http.forbidden -> forbidden)
+    // If comma separated, take last non-empty trimmed part.
+    const cleaned = evtRaw.trim();
+    const commaParts = cleaned.split(',').map(p => p.trim()).filter(Boolean);
+    const lastComma = commaParts.length ? commaParts[commaParts.length - 1] : cleaned;
+    const dotParts = lastComma.split('.').filter(Boolean);
+    const core = dotParts.length ? dotParts[dotParts.length - 1] : lastComma;
+    // Replace underscores with space and title-case each word.
+    return core
+        .replace(/_/g, ' ')
+        .split(/\s+/)
+        .map(w => w.length ? w[0].toUpperCase() + w.slice(1) : w)
+        .join(' ');
+}
+
+function getDisplayName(log: Log | (Log & Record<string, unknown>)): string {
+    const record = log as Record<string, unknown>;
+    const app = (record.app ?? record.appDisplayName ?? "").toString();
+    const evtRaw = (record.evt_type ?? record.event_type ?? record.eventtype ?? "").toString();
+    const evtDisplay = formatEventType(evtRaw);
+    if (app && evtDisplay) return `${app} ${evtDisplay}`;
+    if (app) return app;
+    if (evtDisplay) return evtDisplay;
+    // fallback to id then message
+    return (record.message ?? record.id ?? "").toString();
 }
 
 export default function Analytics() {
@@ -57,7 +125,6 @@ export default function Analytics() {
     const [logs, setLogs] = useState<Log[]>([]);
     const [displayedLogs, setDisplayedLogs] = useState<Log[]>([]);
     const [query, setQuery] = useState("");
-    const [filters, setFilters] = useState<string[]>([]);
     const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
     const [fieldFilters, setFieldFilters] = useState<Record<string, string[]>>(
@@ -76,13 +143,12 @@ export default function Analytics() {
         Object.fromEntries(
             filterFields
                 .map((f) => [f.key, false] as const)
-                .concat([["date_range", false] as const, ["type", false] as const])
+                .concat([["date_range", false] as const])
         )
     );
 
     const clearAll = () => {
         setQuery("");
-        setFilters([]);
         setFieldFilters(Object.fromEntries(filterFields.map((f) => [f.key, []])));
         setDateFrom(null);
         setDateTo(null);
@@ -94,7 +160,7 @@ export default function Analytics() {
             Object.fromEntries(
                 filterFields
                     .map((f) => [f.key, true] as const)
-                    .concat([["date_range", true] as const, ["type", true] as const])
+                    .concat([["date_range", true] as const])
             )
         );
     };
@@ -104,7 +170,7 @@ export default function Analytics() {
             Object.fromEntries(
                 filterFields
                     .map((f) => [f.key, false] as const)
-                    .concat([["date_range", false] as const, ["type", false] as const])
+                    .concat([["date_range", false] as const])
             )
         );
     };
@@ -127,11 +193,7 @@ export default function Analytics() {
 
     const loadMoreLogs = () => setLogsToShow((prev) => prev + 500);
 
-    const toggleTypeFilter = (type: string) => {
-        setFilters((prev) =>
-            prev.includes(type) ? prev.filter((f) => f !== type) : [...prev, type]
-        );
-    };
+    // Removed: Type filtering logic previously here.
 
     const toggleFieldFilter = (field: string, value: string) => {
         setFieldFilters((prev) => {
@@ -173,7 +235,6 @@ export default function Analytics() {
                 }
                 return true;
             })
-            .filter((log) => (filters.length ? filters.includes(log.type) : true))
             .filter((log) => {
                 if (dateFrom || dateTo) {
                     const tsRaw = getLogTimestamp(log);
@@ -215,7 +276,7 @@ export default function Analytics() {
         });
 
         return sorted;
-    }, [logs, query, filters, fieldFilters, dateFrom, dateTo, sortOption]);
+    }, [logs, query, fieldFilters, dateFrom, dateTo, sortOption]);
 
     useEffect(() => {
         setDisplayedLogs(filteredLogs.slice(0, logsToShow));
@@ -327,13 +388,7 @@ export default function Analytics() {
             },
         });
     }
-    filters.forEach((t) => {
-        chips.push({
-            id: `type:${t}`,
-            label: `Type: ${t}`,
-            onRemove: () => toggleTypeFilter(t),
-        });
-    });
+    // Removed Type chips generation.
     if (query.trim() !== "") {
         chips.push({
             id: "query",
@@ -360,7 +415,7 @@ export default function Analytics() {
             {!sidebarCollapsed && (
                 <div
                     ref={sidebarRef}
-                    className="relative h-full bg-neutral-900 border-r border-neutral-700 flex flex-col transition-all duration-150 pr-[6px]"
+                    className="relative h-full min-h-0 bg-neutral-900 border-r border-neutral-700 flex flex-col transition-all duration-150 pr-[6px]"
                     style={{ width: sidebarWidth }}
                 >
                     {/* FILTERS SECTION */}
@@ -424,8 +479,6 @@ export default function Analytics() {
                                 dateTo={dateTo}
                                 onDateFromChange={setDateFrom}
                                 onDateToChange={setDateTo}
-                                typeFilters={filters}
-                                toggleTypeFilter={toggleTypeFilter}
                                 loadedFilterOptions={loadedFilterOptions}
                                 loadMoreFilterOptions={loadMoreFilterOptions}
                             />
@@ -458,7 +511,7 @@ export default function Analytics() {
 
                     {/* LOGS SECTION */}
                     {!logListCollapsed ? (
-                        <div className="flex-1 flex flex-col">
+                        <div className="flex-1 min-h-0 flex flex-col">
                             <div className="flex items-center justify-between h-[30px] px-3 bg-neutral-900/95 border-b border-neutral-700 sticky top-0 z-10">
                                 <span className="text-xs font-semibold text-yellow-400">Logs</span>
                                 <button
@@ -469,7 +522,7 @@ export default function Analytics() {
                                     <PanelBottomClose className="w-4 h-4 text-yellow-400" />
                                 </button>
                             </div>
-                            <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-2 space-y-2">
+                            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-2 space-y-2">
                                 {displayedLogs.length === 0 ? (
                                     <div className="text-sm text-neutral-400 text-center py-4">
                                         No logs.
@@ -491,7 +544,7 @@ export default function Analytics() {
                                                         : "bg-neutral-800 border-neutral-700 hover:bg-neutral-700"
                                                 }`}
                                             >
-                                                {log.message}
+                                                {getDisplayName(log)}
                                             </div>
                                         );
                                     })
@@ -587,7 +640,14 @@ export default function Analytics() {
                     <div className="flex-1 min-h-0 m-4 bg-neutral-900 border border-neutral-700 rounded-lg p-4 overflow-auto">
                         {selectedLog ? (
                             <pre className="text-xs font-mono whitespace-pre-wrap break-all text-neutral-100">
-                                {JSON.stringify(selectedLog, null, 2)}
+                                {(() => {
+                                    const raw = (selectedLog as any).raw;
+                                    if (raw && typeof raw === 'object') {
+                                        return JSON.stringify(raw, null, 2);
+                                    }
+                                    // If no raw, provide minimal notice instead of whole log per requirement.
+                                    return '// No raw field present on this log';
+                                })()}
                             </pre>
                         ) : (
                             <div className="text-sm text-neutral-400">

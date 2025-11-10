@@ -19,4 +19,9 @@
         background-color: hsl(var(--bg));
         color: hsl(var(--fg));
     }
+    /* Ensure the app uses internal scroll regions instead of a page-level scrollbar */
+    html, body, #root {
+        height: 100%;
+        overflow: hidden;
+    }
 }

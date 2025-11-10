@@ -4,8 +4,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Plus, X } from 'lucide-react';
 
 export interface EventColor {
-  eventType: string;
-  color: string;
+  eventType: string; // The raw value (event_type, severity, etc.) being colored
+  color: string;     // CSS color string
 }
 
 export type ColorCriteria = 
@@ -25,10 +25,12 @@ export interface AvailableValues {
 
 interface ColorPickerProps {
   colors: EventColor[];
-  onColorChange: (eventType: string, color: string) => void;
-  onRemoveColor: (eventType: string) => void;
-  onAddColor: (eventType: string, color: string) => void;
+  onColorChange: (value: string, color: string) => void;
+  onRemoveColor: (value: string) => void;
+  onAddColor: (value: string, color: string) => void;
   availableValues: AvailableValues;
+  selectedCriteria: ColorCriteria; // lifted state from parent
+  onCriteriaChange: (criteria: ColorCriteria) => void; // notify parent
 }
 
 // Generate highly distinct colors optimized for large sets
@@ -150,20 +152,18 @@ const criteriaTitles: Record<ColorCriteria | "select", string> = {
   dest_ip: "Destination IP"
 };
 
-const ColorPicker = ({ colors, onColorChange, onRemoveColor, onAddColor, availableValues }: ColorPickerProps) => {
-  const [selectedCriteria, setSelectedCriteria] = useState<ColorCriteria>("event_type");
+const ColorPicker = ({ colors, onColorChange, onRemoveColor, onAddColor, availableValues, selectedCriteria, onCriteriaChange }: ColorPickerProps) => {
 
   // When criteria changes, automatically add all values with predefined colors
   const handleCriteriaChange = (value: string) => {
     const newCriteria = value as ColorCriteria;
-    setSelectedCriteria(newCriteria);
-    
+    onCriteriaChange(newCriteria);
     const values = availableValues[newCriteria];
     const distinctColors = generateDistinctColors(values.length);
-    
-    values.forEach((value, index) => {
-      if (!colors.some(c => c.eventType === value)) {
-        onAddColor(value, distinctColors[index]);
+    // Pre-populate colors for new criteria values without overwriting existing mapping for other criteria.
+    values.forEach((val, index) => {
+      if (!colors.some(c => c.eventType === val)) {
+        onAddColor(val, distinctColors[index]);
       }
     });
   };

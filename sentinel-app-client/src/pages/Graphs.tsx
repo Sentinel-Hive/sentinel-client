@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import AnalyticsHeader from "../components/AnalyticsHeader";
-import ColorPicker, { EventColor } from "../components/LogGraph/ColorPicker";
+import ColorPicker, { EventColor, ColorCriteria } from "../components/LogGraph/ColorPicker";
 import DatasetPicker from "../components/LogGraph/DatasetPicker";
 import ObsidianGraph from "../components/LogGraph/ObsidianGraph";
 import GraphControls from "../components/LogGraph/GraphControls";
@@ -26,6 +26,7 @@ const DEFAULT_SIDEBAR_WIDTH = 300; // Match analytics page width
 
 const Graphs = () => {
   const [eventColors, setEventColors] = useState<EventColor[]>([]);
+  const [colorCriteria, setColorCriteria] = useState<ColorCriteria>('event_type');
   const [selectedRelationship, setSelectedRelationship] = useState(RelationshipTypes.IP_CONNECTION);
   const [currentDataset, setCurrentDataset] = useState<string | null>(null);
   const [logs, setLogs] = useState<any[]>([]);
@@ -65,16 +66,17 @@ const Graphs = () => {
     };
     
     logs.forEach(log => {
-      // Event types
-      if (log.type) values.event_type.add(log.type);
-      if (log.event_type) values.event_type.add(log.event_type);
+      // Event types (prefer evt_type/event_type, not generic type)
+      const evt = (log as any).evt_type || log.event_type;
+      if (evt) values.event_type.add(evt);
       
       // Severity levels
       if (log.severity) values.severity.add(log.severity);
       
       // Application types
-      if (log.appDisplayName) values.app_type.add(log.appDisplayName);
-      if (log.resourceDisplayName) values.app_type.add(log.resourceDisplayName);
+      if ((log as any).app) values.app_type.add((log as any).app);
+      if ((log as any).appDisplayName) values.app_type.add((log as any).appDisplayName);
+      if ((log as any).resourceDisplayName) values.app_type.add((log as any).resourceDisplayName);
       
       // IP addresses
       if (log.src_ip) values.src_ip.add(log.src_ip);
@@ -152,6 +154,9 @@ const Graphs = () => {
     ));
   };
 
+  // Compute once to control layout behavior
+  const enabledCount = graphOptions.filter(g => g.enabled).length;
+
   return (
     <div className="h-full flex flex-col">
       <div className="fixed top-[61px] inset-x-0 bg-neutral-900 z-10">
@@ -161,13 +166,14 @@ const Graphs = () => {
         <div className="fixed inset-x-0 top-24 bottom-0 bg-black text-white flex">
           {/* Left Panel - Completely Separate */}
           <div 
-            className="h-full bg-neutral-800"
+            className="h-full bg-neutral-800 overflow-hidden"
             style={{ 
               width: sidebarCollapsed ? '0' : `${sidebarWidth}px`,
-              transition: isResizingSidebar ? 'none' : 'width 200ms ease-out'
+              transition: isResizingSidebar ? 'none' : 'width 200ms ease-out',
+              pointerEvents: sidebarCollapsed ? 'none' : 'auto'
             }}
           >
-            <div className="h-full overflow-y-auto" style={{ width: `${sidebarWidth}px` }}>
+            <div className="h-full overflow-y-auto" style={{ width: '100%' }}>
               <div className="p-3 space-y-4">
                 <div className="space-y-1">
                   <h3 className="text-sm font-medium text-yellow-400 mb-2">Graph Views</h3>
@@ -241,6 +247,12 @@ const Graphs = () => {
                       onRemoveColor={handleRemoveColor}
                       onAddColor={handleAddColor}
                       availableValues={availableValues}
+                      selectedCriteria={colorCriteria}
+                      onCriteriaChange={(c) => {
+                        setColorCriteria(c);
+                        // Optionally clear existing colors when criteria changes
+                        // setEventColors([]); (keep existing to allow multi-criteria palette)
+                      }}
                     />
                   </div>
                 </div>
@@ -259,13 +271,15 @@ const Graphs = () => {
           </div>
 
           {/* Resize Handle */}
-          <div 
-            className="w-1 h-full bg-neutral-700 hover:bg-yellow-400 cursor-col-resize transition-colors"
-            onMouseDown={() => setIsResizingSidebar(true)}
-          />
+          {!sidebarCollapsed && (
+            <div 
+              className="w-1 h-full bg-neutral-700 hover:bg-yellow-400 cursor-col-resize transition-colors"
+              onMouseDown={() => setIsResizingSidebar(true)}
+            />
+          )}
 
           {/* Main Content Area */}
-          <div className="flex-1 h-full flex flex-col">
+          <div className="flex-1 h-full flex flex-col min-h-0">
             {/* Graph Header */}
             <div className="px-4 py-2 border-b border-neutral-800">
               <div className="flex items-center gap-x-4">
@@ -293,8 +307,8 @@ const Graphs = () => {
             </div>
 
             {/* Graphs Area */}
-            <div className="flex-1 overflow-y-auto">
-              <div className={`${graphOptions.filter(g => g.enabled).length > 1 ? 'pb-96' : ''} h-full space-y-1 p-1`}>
+            <div className={`flex-1 min-h-0 ${enabledCount > 1 ? 'overflow-y-auto' : 'overflow-hidden'}`}>
+              <div className={`${enabledCount > 1 ? 'pb-96' : ''} h-full space-y-1 p-1`}>
                 {graphOptions.filter(graph => graph.enabled).map((graph, index, enabledGraphs) => (
                   <div 
                     key={graph.id}
@@ -316,6 +330,7 @@ const Graphs = () => {
                         }))}
                         selectedRelationship={selectedRelationship}
                         colors={Object.fromEntries(eventColors.map(c => [c.eventType, c.color]))}
+                        colorCriteria={colorCriteria}
                         shapes={{
                           'azure-ad': 'circle',
                           'windows-security': 'square',

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import * as d3 from 'd3';
 import { Log, NodeData, LinkData, RelationshipTypes } from '../../types/types';
 
@@ -20,16 +20,24 @@ interface ObsidianGraphProps {
   selectedRelationship: RelationshipTypes;
   colors: { [key: string]: string };
   shapes: { [key: string]: string };
+  colorCriteria?: 'event_type' | 'severity' | 'app_type' | 'src_ip' | 'dest_ip';
   onNodeClick?: (node: NodeData) => void;
   onLinkClick?: (link: LinkData) => void;
 }
 
-type DragBehavior = d3.DragBehavior<any, any, any>;
-
-const ObsidianGraph = ({ logs, selectedRelationship, colors, shapes, onNodeClick, onLinkClick }: ObsidianGraphProps) => {
-  // Always define hooks at the top level in the same order
+const ObsidianGraph = ({
+  logs,
+  selectedRelationship,
+  colors,
+  shapes,
+  colorCriteria = 'event_type',
+  onNodeClick,
+  onLinkClick,
+}: ObsidianGraphProps) => {
   const svgRef = useRef<SVGSVGElement>(null);
-  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [nodes, setNodes] = useState<NodeData[]>([]);
   const [links, setLinks] = useState<LinkData[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -37,397 +45,569 @@ const ObsidianGraph = ({ logs, selectedRelationship, colors, shapes, onNodeClick
   const [simulation, setSimulation] = useState<Simulation | null>(null);
   const [isReady, setIsReady] = useState(false);
 
-  // Effect to handle dimension updates
+  // Measure once at mount
   useEffect(() => {
-    if (svgRef.current) {
-      const width = svgRef.current.getBoundingClientRect().width || 800;
-      const height = svgRef.current.getBoundingClientRect().height || 600;
-      setDimensions({ width, height });
-    }
+    const el = svgRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setDimensions({
+      width: r.width || 800,
+      height: r.height || 600,
+    });
   }, []);
 
-  // Add window resize handler
+  // Keep the simulation centered after container resizes
+  useEffect(() => {
+    if (!simulation) return;
+    const { width, height } = dimensions;
+    simulation
+      .force('center', d3.forceCenter<SimulationNode>(width / 2, height / 2))
+      .force('x', d3.forceX<SimulationNode>(width / 2).strength(0.05))
+      .force('y', d3.forceY<SimulationNode>(height / 2).strength(0.05));
+    simulation.alpha(0.2).restart();
+  }, [dimensions.width, dimensions.height, simulation]);
+
+  // Resize handler
   useEffect(() => {
     const handleResize = () => {
-      if (svgRef.current) {
-        const width = svgRef.current.getBoundingClientRect().width || 800;
-        const height = svgRef.current.getBoundingClientRect().height || 600;
-        setDimensions({ width, height });
-      }
+      const el = svgRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setDimensions({
+        width: r.width || 800,
+        height: r.height || 600,
+      });
     };
-
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Create nodes and links based on logs and relationship type
-  // Process logs into nodes and links
+  // Build nodes (one per log) + links (based on selected relationship rule)
   useEffect(() => {
-    console.log('Processing logs:', logs?.length);
     if (!logs || logs.length === 0) {
       setNodes([]);
       setLinks([]);
       return;
     }
+
     try {
-      // Create nodes from logs with unique IDs for potential entities
-      const entityNodesMap = new Map<string, NodeData>();
-      
-      // Function to safely get a node ID
-      const getNodeId = (value: string, type: string) => `${type}-${value}`;
-      
-      // Function to get relationship source and target for a log
-      const getRelationshipPair = (log: Log): { sourceId: string | null, targetId: string | null, sourceValue: string | null, targetValue: string | null } => {
-        switch (selectedRelationship) {
-          case RelationshipTypes.IP_CONNECTION:
-            return {
-              sourceId: log.src_ip ? getNodeId(log.src_ip, 'ip') : null,
-              targetId: log.dest_ip ? getNodeId(log.dest_ip, 'ip') : null,
-              sourceValue: log.src_ip || null,
-              targetValue: log.dest_ip || null
-            };
-          case RelationshipTypes.USER_EVENT:
-            return {
-              sourceId: log.user ? getNodeId(log.user, 'user') : null,
-              targetId: log.event_type ? getNodeId(log.event_type, 'event') : null,
-              sourceValue: log.user || null,
-              targetValue: log.event_type || null
-            };
-          case RelationshipTypes.APP_EVENT:
-            return {
-              sourceId: log.app ? getNodeId(log.app, 'app') : null,
-              targetId: log.event_type ? getNodeId(log.event_type, 'event') : null,
-              sourceValue: log.app || null,
-              targetValue: log.event_type || null
-            };
-          case RelationshipTypes.HOST_EVENT:
-            return {
-              sourceId: log.host ? getNodeId(log.host, 'host') : null,
-              targetId: log.event_type ? getNodeId(log.event_type, 'event') : null,
-              sourceValue: log.host || null,
-              targetValue: log.event_type || null
-            };
-          case RelationshipTypes.THREAT_INDICATOR:
-            return {
-              sourceId: log.threatIndicator ? getNodeId(log.threatIndicator, 'threat') : null,
-              targetId: log.event_type ? getNodeId(log.event_type, 'event') : null,
-              sourceValue: log.threatIndicator || null,
-              targetValue: log.event_type || null
-            };
-          default:
-            return { sourceId: null, targetId: null, sourceValue: null, targetValue: null };
+      // 1) Create one node per log (even if it becomes an orphan)
+      const newNodes: NodeData[] = logs.map((log, idx) => ({
+        id: String(log.id ?? `log-${idx}`),
+        type: log.type || 'unknown',
+        value:
+          (log.app || log.appDisplayName || '') && (log.event_type || (log as any).evt_type)
+            ? `${log.app || log.appDisplayName} ${(log.event_type || (log as any).evt_type) as string}`
+            : (log.message || log.id || `log-${idx}`),
+        dataset: log.type || 'unknown',
+        details: log,
+      }));
+
+      // 2) Build links based on relationship rules
+      const idAt = (i: number) => newNodes[i].id;
+      const addPair = (a: number, b: number, addTo: Set<string>, out: LinkData[]) => {
+        if (a === b) return;
+        const ida = idAt(a);
+        const idb = idAt(b);
+        const key = ida < idb ? `${ida}|${idb}` : `${idb}|${ida}`;
+        if (!addTo.has(key)) {
+          addTo.add(key);
+          out.push({ source: ida, target: idb, type: selectedRelationship });
         }
       };
 
-    // Create nodes and links
-    logs.forEach((log) => {
-      const { sourceId, targetId, sourceValue, targetValue } = getRelationshipPair(log);
-      
-      // Add source node if it exists and is unique
-      if (sourceId && sourceValue) {
-        if (!entityNodesMap.has(sourceId)) {
-          entityNodesMap.set(sourceId, {
-            id: sourceId,
-            type: log.type || 'unknown',
-            value: sourceValue,
-            dataset: log.type || 'unknown',
-            details: log
-          });
-        }
-      }
-      
-      // Add target node if it exists and is unique
-      if (targetId && targetValue) {
-        if (!entityNodesMap.has(targetId)) {
-          entityNodesMap.set(targetId, {
-            id: targetId,
-            type: log.type || 'unknown',
-            value: targetValue,
-            dataset: log.type || 'unknown',
-            details: log
-          });
-        }
-      }
-    });
+      const linkSet = new Set<string>();
+      const linksOut: LinkData[] = [];
 
-    // Convert nodes map to array
-    const newNodes = Array.from(entityNodesMap.values());
-
-    // Create links between related nodes
-    const newLinks: LinkData[] = [];
-    logs.forEach((log) => {
-      const { sourceId, targetId } = getRelationshipPair(log);
-      if (sourceId && targetId) {
-        newLinks.push({
-          source: sourceId,
-          target: targetId,
-          type: selectedRelationship
+      const by = (getter: (l: Log) => string | undefined) => {
+        const map = new Map<string, number[]>();
+        logs.forEach((l, i) => {
+          const k = getter(l);
+          if (!k) return;
+          if (!map.has(k)) map.set(k, []);
+          map.get(k)!.push(i);
         });
-      }
-    });
+        return map;
+      };
 
-    // Deduplicate links
-    const uniqueLinks = newLinks.filter((link, index, self) => 
-      index === self.findIndex((l) => 
-        (l.source === link.source && l.target === link.target) ||
-        (l.source === link.target && l.target === link.source)
-      )
-    );
-
-    setNodes(newNodes);
-    setLinks(uniqueLinks);
-  } catch (err) {
-    console.error('Error processing logs:', err);
-    setNodes([]);
-    setLinks([]);
-  }
-  }, [logs, selectedRelationship]);
-
-  // Initialize D3 visualization when ready
-  useEffect(() => {
-    if (!isReady || nodes.length === 0) {
-      console.log('Not ready for D3 init');
-      return undefined;
-    }
-
-    let cleanup: (() => void) | undefined;
-
-    // Wait for next frame to ensure DOM is ready
-    const frameId = requestAnimationFrame(() => {
-      try {
-        const svgElement = svgRef.current;
-        if (!svgElement) {
-          console.error('SVG ref not available when trying to initialize D3');
-          setIsReady(false);
-          return;
+      // Deterministic center selector for star topology: hash group key + length
+      const hashString = (s: string) => {
+        let h = 0;
+        for (let i = 0; i < s.length; i++) {
+          h = (h * 31 + s.charCodeAt(i)) >>> 0;
         }
+        return h;
+      };
+      const pickCenterIndex = (indices: number[], groupKey: string) => {
+        if (indices.length === 0) return -1;
+        const h = hashString(groupKey);
+        return indices[h % indices.length];
+      };
 
-      const svgDimensions = svgElement.getBoundingClientRect();
-      if (svgDimensions.width === 0 || svgDimensions.height === 0) {
-        console.error('SVG has zero dimensions, will retry');
-        setIsReady(false);
-        return;
-      }        console.log('SVG dimensions confirmed:', svgDimensions);
-        
-        // Set initial dimensions
-        const width = svgDimensions.width;
-        const height = svgDimensions.height;
-        
-        // Update dimensions state
-        setDimensions({ width, height });
-
-        // Set up the SVG container
-        const svg = d3.select(svgElement);
-        svg.selectAll("*").remove();
-        svg.attr("width", width)
-           .attr("height", height);
-
-        const g = svg.append("g");
-
-        // Create tooltip
-        const tooltip = d3.select('body').append('div')
-          .attr('class', 'absolute pointer-events-none opacity-0 z-50')
-          .style('position', 'absolute')
-          .style('z-index', '10');
-
-        // Create force simulation
-        console.log('Starting D3 simulation with:', { nodeCount: nodes.length, linkCount: links.length });
-        
-        const newSimulation = d3.forceSimulation<SimulationNode>(nodes)
-          .force('link', d3.forceLink<SimulationNode, SimulationLink>(links)
-            .id(d => d.id))
-          .force('charge', d3.forceManyBody<SimulationNode>().strength(-100))
-          .force('center', d3.forceCenter<SimulationNode>(width / 2, height / 2)) as Simulation;
-
-        setSimulation(newSimulation);
-
-        // Create links
-        const link = g.append('g')
-          .attr('class', 'links')
-          .selectAll('line')
-          .data(links)
-          .join('line')
-          .attr('stroke', '#666')
-          .attr('stroke-width', 2)
-          .attr('stroke-opacity', 0.6);
-
-        // Create nodes with different shapes
-        const node = g.append('g')
-          .attr('class', 'nodes')
-          .selectAll('g')
-          .data(nodes)
-          .join('g')
-          .call(drag(newSimulation) as any);
-
-        // Add shapes based on node type
-        node.each(function(d: any) {
-          const shape = shapes[d.dataset] || shapes['Default'];
-          const element = d3.select(this);
-          
-          const nodeColor = colors[d.dataset] || '#999';
-          
-          switch (shape) {
-            case 'circle':
-              element.append('circle')
-                .attr('r', 8)
-                .attr('fill', nodeColor);
-              break;
-            case 'square':
-              element.append('rect')
-                .attr('x', -6)
-                .attr('y', -6)
-                .attr('width', 12)
-                .attr('height', 12)
-                .attr('fill', nodeColor);
-              break;
-            case 'triangle':
-              element.append('path')
-                .attr('d', d3.symbol().type(d3.symbolTriangle).size(100))
-                .attr('fill', nodeColor);
-              break;
-            case 'diamond':
-              element.append('path')
-                .attr('d', d3.symbol().type(d3.symbolDiamond).size(100))
-                .attr('fill', nodeColor);
-              break;
-            case 'pentagon':
-              element.append('path')
-                .attr('d', d3.symbol().type(d3.symbolTriangle).size(100))
-                .attr('fill', nodeColor);
-              break;
+      if (selectedRelationship === RelationshipTypes.IP_CONNECTION) {
+        const bySrc = by((l) => l.src_ip);
+        const byDst = by((l) => l.dest_ip || (l as any).dest);
+        // For any IP that appears as a src in some logs and as a dest in others, connect cross-pairs
+        const ips = new Set<string>([...bySrc.keys(), ...byDst.keys()]);
+        ips.forEach((ip) => {
+          const srcIdxs = bySrc.get(ip) || [];
+          const dstIdxs = byDst.get(ip) || [];
+          for (const i of srcIdxs) {
+            for (const j of dstIdxs) addPair(i, j, linkSet, linksOut);
+          }
+          // vice versa is naturally covered by cross-product above
+        });
+      } else if (selectedRelationship === RelationshipTypes.USER_EVENT) {
+        const groups = by((l) => l.user || (l as any).userPrincipalName);
+        groups.forEach((idxs, key) => {
+          if (idxs.length > 6) {
+            const centerIdx = pickCenterIndex(idxs, key);
+            if (centerIdx >= 0) newNodes[centerIdx].isStarCenter = true;
+            idxs.forEach((other) => { if (other !== centerIdx) addPair(centerIdx, other, linkSet, linksOut); });
+          } else {
+            for (let a = 0; a < idxs.length; a++) {
+              for (let b = a + 1; b < idxs.length; b++) addPair(idxs[a], idxs[b], linkSet, linksOut);
+            }
           }
         });
+      } else if (selectedRelationship === RelationshipTypes.APP_EVENT) {
+        const groups = by((l) => (l.event_type || (l as any).evt_type || (l as any).eventtype) as string | undefined);
+        groups.forEach((idxs, key) => {
+          if (idxs.length > 6) {
+            const centerIdx = pickCenterIndex(idxs, key);
+            if (centerIdx >= 0) newNodes[centerIdx].isStarCenter = true;
+            idxs.forEach((other) => { if (other !== centerIdx) addPair(centerIdx, other, linkSet, linksOut); });
+          } else {
+            for (let a = 0; a < idxs.length; a++) {
+              for (let b = a + 1; b < idxs.length; b++) addPair(idxs[a], idxs[b], linkSet, linksOut);
+            }
+          }
+        });
+      } else if (selectedRelationship === RelationshipTypes.HOST_EVENT) {
+        const groups = by((l) => l.host);
+        groups.forEach((idxs, key) => {
+          if (idxs.length > 6) {
+            const centerIdx = pickCenterIndex(idxs, key);
+            if (centerIdx >= 0) newNodes[centerIdx].isStarCenter = true;
+            idxs.forEach((other) => { if (other !== centerIdx) addPair(centerIdx, other, linkSet, linksOut); });
+          } else {
+            for (let a = 0; a < idxs.length; a++) {
+              for (let b = a + 1; b < idxs.length; b++) addPair(idxs[a], idxs[b], linkSet, linksOut);
+            }
+          }
+        });
+      } else if (selectedRelationship === RelationshipTypes.SEVERITY_LEVEL) {
+        // Group strictly by severity string; if entirely absent, fall back to threatIndicator.
+        const bySeverity = by((l) => l.severity);
+        const sourceMap = bySeverity.size > 0 ? bySeverity : by((l) => (l as any).threatIndicator);
+        sourceMap.forEach((idxs) => {
+          // Star topology if large group
+          if (idxs.length > 6) {
+            const centerIdx = pickCenterIndex(idxs, 'severity');
+            if (centerIdx >= 0) newNodes[centerIdx].isStarCenter = true;
+            idxs.forEach((other) => {
+              if (other !== centerIdx) addPair(centerIdx, other, linkSet, linksOut);
+            });
+          } else {
+            for (let a = 0; a < idxs.length; a++) {
+              for (let b = a + 1; b < idxs.length; b++) addPair(idxs[a], idxs[b], linkSet, linksOut);
+            }
+          }
+        });
+      }
 
-        // Add hover and click effects
-        node.on('mouseover', function(event, d: any) {
-          const nodeElement = d3.select(this);
-          nodeElement.select('circle, rect, path')
+      setNodes(newNodes);
+      setLinks(linksOut);
+      setInitialized(false); // new data, re-init soon
+    } catch (e) {
+      console.error('Error processing logs:', e);
+      setNodes([]);
+      setLinks([]);
+    }
+  }, [logs, selectedRelationship]);
+
+  // ---- D3 init ----
+  // 1) ---- D3 init ----
+// CHANGE the dependency list: remove colors, shapes, onNodeClick, and links/nodes *objects*.
+// Depend only on isReady and the *sizes* (length) of nodes/links.
+useLayoutEffect(() => {
+  if (!isReady || nodes.length === 0) {
+    return;
+  }
+
+  let raf1 = 0;
+  let raf2 = 0;
+  let cleanup: (() => void) | undefined;
+
+  const tryInit = () => {
+    const el = svgRef.current;
+    if (!el) {
+      raf2 = requestAnimationFrame(tryInit);
+      return;
+    }
+
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      raf2 = requestAnimationFrame(tryInit);
+      return;
+    }
+
+    const width = rect.width;
+    const height = rect.height;
+    setDimensions({ width, height });
+
+    try {
+      const svg = d3.select(el);
+      svg.selectAll('*').remove();
+      svg.attr('width', width).attr('height', height);
+
+  const g = svg.append('g');
+
+      // Create tooltip inside the outer container (with relative positioning)
+      const containerEl = containerRef.current || el.parentElement as HTMLElement;
+      const container = d3.select(containerEl);
+      const tooltip = container
+        .append('div')
+        .attr('class', 'absolute pointer-events-none opacity-0 z-50')
+        .style('position', 'absolute')
+        .style('z-index', '10')
+        .style('max-width', '320px')
+        .style('overflow', 'hidden');
+
+      // Helper: place tooltip tightly next to a point (x,y) with smart side-switching
+      const placeTooltip = (x: number, y: number) => {
+        const cRect = (container.node() as HTMLElement).getBoundingClientRect();
+        const tip = tooltip.node() as HTMLElement;
+        const tipRect = tip.getBoundingClientRect();
+        const gap = 10;
+        // Prefer right-middle of the anchor
+        let left = x + gap;
+        let top = y - tipRect.height / 2;
+        // If it would overflow on the right, flip to the left side of the anchor
+        if (left + tipRect.width + 4 > cRect.width) {
+          left = x - tipRect.width - gap;
+        }
+        // Clamp inside container
+        left = Math.max(0, Math.min(cRect.width - tipRect.width - 4, left));
+        top = Math.max(0, Math.min(cRect.height - tipRect.height - 4, top));
+        tooltip.style('left', left + 'px').style('top', top + 'px');
+      };
+
+      const baseRadius = 8; // visual radius for regular nodes
+      const centerRadius = 14; // larger radius for star-center nodes
+
+      const newSimulation = d3
+        .forceSimulation<SimulationNode>(nodes)
+        .force('link', d3.forceLink<SimulationNode, SimulationLink>(links).id((d) => d.id))
+        .force('charge', d3.forceManyBody<SimulationNode>().strength(-100))
+        .force('collide', d3.forceCollide<SimulationNode>().radius((d: any) => ((d.isStarCenter ? centerRadius : baseRadius) * 1.5)).iterations(1))
+        .force('x', d3.forceX<SimulationNode>(width / 2).strength(0.05))
+        .force('y', d3.forceY<SimulationNode>(height / 2).strength(0.05))
+        .force('center', d3.forceCenter<SimulationNode>(width / 2, height / 2)) as Simulation;
+
+      setSimulation(newSimulation);
+
+      const link = g
+        .append('g')
+        .attr('class', 'links')
+        .selectAll('line')
+        .data(links)
+        .join('line')
+        .attr('stroke', '#666')
+        .attr('stroke-width', 2)
+        .attr('stroke-opacity', 0.6)
+        .style('pointer-events', 'stroke')
+        .style('cursor', 'help')
+        .on('mouseover', function (_event: MouseEvent, d: any) {
+          d3.select(this).attr('stroke-opacity', 0.95).attr('stroke-width', 3);
+          tooltip.transition().duration(150).style('opacity', 0.9);
+          const s: any = d.source; // simulation node
+          const t: any = d.target;
+          const srcVal = s?.value || s?.id || '';
+          const tgtVal = t?.value || t?.id || '';
+          const rel = d.type || 'link';
+          tooltip
+            .html(`
+              <div class="bg-neutral-800 p-2 rounded text-xs space-y-0.5">
+                <div><span class="text-neutral-400">relationship:</span> ${rel}</div>
+                <div><span class="text-neutral-400">source:</span> ${srcVal}</div>
+                <div><span class="text-neutral-400">target:</span> ${tgtVal}</div>
+              </div>
+            `)
+            .call(() => {
+              // Position at midpoint of link using simulation coordinates
+              const midX = (s?.x + t?.x) / 2;
+              const midY = (s?.y + t?.y) / 2;
+              placeTooltip(midX, midY);
+            });
+        })
+        .on('mousemove', function (event: MouseEvent, d: any) {
+          // Re-align in case simulation moved slightly during drag/tick
+          const s: any = d.source;
+          const t: any = d.target;
+          const midX = (s?.x + t?.x) / 2;
+          const midY = (s?.y + t?.y) / 2;
+          placeTooltip(midX, midY);
+        })
+        .on('mouseout', function () {
+          d3.select(this).attr('stroke-opacity', 0.6).attr('stroke-width', 2);
+          tooltip.transition().duration(300).style('opacity', 0);
+        })
+        .on('click', function (_, d: any) {
+          onLinkClick?.(d);
+        });
+
+      const node = g
+        .append('g')
+        .attr('class', 'nodes')
+        .selectAll('g')
+        .data(nodes)
+        .join('g')
+        .call(drag(newSimulation) as any);
+
+      // Robust default for shape + pentagon helper (keep your existing shape code if you already added it)
+      const drawPolygon = (
+        elem: d3.Selection<SVGGElement, any, SVGGElement | null, unknown>,
+        sides: number,
+        radius: number,
+        fill: string
+      ) => {
+        const pts: [number, number][] = [];
+        for (let i = 0; i < sides; i++) {
+          const a = (i / sides) * Math.PI * 2 - Math.PI / 2;
+          pts.push([Math.cos(a) * radius, Math.sin(a) * radius]);
+        }
+        const d = d3.line()(pts.concat([pts[0]]))!;
+        elem.append('path').attr('d', d).attr('fill', fill).attr('stroke', 'none');
+      };
+
+      node.each(function (d: any) {
+        const shape =
+          shapes[d.dataset] ?? shapes['default'] ?? shapes['Default'] ?? 'circle';
+        const element = d3.select(this);
+        const r = d.isStarCenter ? centerRadius : baseRadius;
+        // Compute color key based on selected criteria
+        let colorKey: string | undefined;
+        const det = d.details || {};
+        switch (colorCriteria) {
+          case 'severity':
+            colorKey = det.severity; break;
+          case 'app_type':
+            colorKey = det.app || det.appDisplayName || det.resourceDisplayName; break;
+          case 'src_ip':
+            colorKey = det.src_ip || det.ipAddress; break;
+          case 'dest_ip':
+            colorKey = det.dest_ip || det.dest; break;
+          default:
+            colorKey = det.event_type || det.evt_type || det.eventtype || d.type || d.dataset; break;
+        }
+        const nodeColor = (colorKey && colors[colorKey]) || '#999';
+
+        switch (shape) {
+          case 'circle':
+            element.append('circle').attr('r', r).attr('fill', nodeColor);
+            break;
+          case 'square':
+            element
+              .append('rect')
+              .attr('x', -r)
+              .attr('y', -r)
+              .attr('width', r * 2)
+              .attr('height', r * 2)
+              .attr('fill', nodeColor);
+            break;
+          case 'triangle':
+            element
+              .append('path')
+              .attr('d', d3.symbol().type(d3.symbolTriangle).size(100 * (r / baseRadius) ** 2) as any)
+              .attr('fill', nodeColor);
+            break;
+          case 'diamond':
+            element
+              .append('path')
+              .attr('d', d3.symbol().type(d3.symbolDiamond).size(100 * (r / baseRadius) ** 2) as any)
+              .attr('fill', nodeColor);
+            break;
+          case 'pentagon':
+            drawPolygon(element as any, 5, r, nodeColor);
+            break;
+          default:
+            element.append('circle').attr('r', r).attr('fill', nodeColor);
+            break;
+        }
+      });
+
+      node
+        .on('mouseover', function (_event, d: any) {
+          d3.select(this)
+            .select('circle, rect, path')
             .transition()
             .duration(200)
             .attr('transform', 'scale(1.2)');
-          
-          tooltip.transition()
-            .duration(200)
-            .style('opacity', .9);
-          tooltip.html(`
-            <div class="bg-neutral-800 p-2 rounded text-xs">
-              <div>Type: ${d.type}</div>
-              <div>Value: ${d.value}</div>
-              <div>Dataset: ${d.dataset}</div>
-              ${d.details.timestamp ? `<div>Time: ${new Date(d.details.timestamp).toLocaleString()}</div>` : ''}
-              ${d.details.src_ip ? `<div>Source IP: ${d.details.src_ip}</div>` : ''}
-              ${d.details.dest_ip ? `<div>Dest IP: ${d.details.dest_ip}</div>` : ''}
-              ${d.details.user ? `<div>User: ${d.details.user}</div>` : ''}
-              ${d.details.app ? `<div>App: ${d.details.app}</div>` : ''}
-              ${d.details.host ? `<div>Host: ${d.details.host}</div>` : ''}
-              ${d.details.threatIndicator ? `<div>Threat: ${d.details.threatIndicator}</div>` : ''}
-            </div>
-          `)
-            .style('left', (event.pageX + 10) + 'px')
-            .style('top', (event.pageY - 28) + 'px');
+
+          tooltip.transition().duration(200).style('opacity', 0.9);
+          const log = d.details || {};
+          const evtTypeRaw = log.event_type || log.evt_type || log.eventtype || '';
+          const evtType = evtTypeRaw || 'n/a';
+          const ts = log.timestamp || log._time || log.createdDateTime || 'n/a';
+          const formatEvt = (raw: string) => {
+            if (!raw) return '';
+            const cleaned = raw.trim();
+            const commaParts = cleaned.split(',').map((p: string) => p.trim()).filter(Boolean);
+            const lastComma = commaParts.length ? commaParts[commaParts.length - 1] : cleaned;
+            const dotParts = lastComma.split('.').filter(Boolean);
+            const core = dotParts.length ? dotParts[dotParts.length - 1] : lastComma;
+            return core.replace(/_/g, ' ').split(/\s+/).map((w: string) => w ? w[0].toUpperCase() + w.slice(1) : w).join(' ');
+          };
+          const dispName = `${(log.app || log.appDisplayName || 'n/a')}${evtType ? ' ' + formatEvt(evtType) : ''}`;
+          tooltip
+            .html(`
+              <div class="bg-neutral-800 p-2 rounded text-xs space-y-0.5">
+                <div><span class="text-neutral-400">id:</span> ${log.id || d.id}</div>
+                <div><span class="text-neutral-400">message:</span> ${dispName}</div>
+                <div><span class="text-neutral-400">type:</span> ${log.type || 'n/a'}</div>
+                <div><span class="text-neutral-400">timestamp:</span> ${ts}</div>
+                <div><span class="text-neutral-400">src_ip:</span> ${log.src_ip || 'n/a'}</div>
+                <div><span class="text-neutral-400">dest_ip:</span> ${log.dest_ip || log.dest || 'n/a'}</div>
+                <div><span class="text-neutral-400">user:</span> ${log.user || log.userPrincipalName || 'n/a'}</div>
+                <div><span class="text-neutral-400">event_type:</span> ${evtType}</div>
+                <div><span class="text-neutral-400">severity:</span> ${log.severity || ''}</div>
+                <div><span class="text-neutral-400">app:</span> ${log.app || log.appDisplayName || 'n/a'}</div>
+                <div><span class="text-neutral-400">dest_port:</span> ${log.dest_port || 'n/a'}</div>
+                <div><span class="text-neutral-400">src_port:</span> ${log.src_port || 'n/a'}</div>
+                <div><span class="text-neutral-400">status:</span> ${log.status || 'n/a'}</div>
+                <div><span class="text-neutral-400">host:</span> ${log.host || 'n/a'}</div>
+              </div>
+            `)
+            .call(() => {
+              // Use node coordinates (d.x, d.y)
+              const nx = d.x ?? 0;
+              const ny = d.y ?? 0;
+              placeTooltip(nx, ny);
+            });
         })
-        .on('mouseout', function() {
-          d3.select(this).select('circle, rect, path')
+        .on('mousemove', function (event: MouseEvent, d: any) {
+          // keep tooltip anchored to node while dragging or simulation moves
+          const nx = d?.x ?? 0;
+          const ny = d?.y ?? 0;
+          placeTooltip(nx, ny);
+        })
+        .on('mouseout', function () {
+          d3.select(this)
+            .select('circle, rect, path')
             .transition()
             .duration(200)
             .attr('transform', 'scale(1)');
-          
-          tooltip.transition()
-            .duration(500)
-            .style('opacity', 0);
+          tooltip.transition().duration(500).style('opacity', 0);
         })
-        .on('click', function(event, d: any) {
-          if (onNodeClick) onNodeClick(d);
+        .on('click', function (_, d: any) {
+          onNodeClick?.(d);
         });
 
-        // Update positions on each tick
-        newSimulation.on('tick', () => {
-          link
-            .attr('x1', (d: any) => d.source.x)
-            .attr('y1', (d: any) => d.source.y)
-            .attr('x2', (d: any) => d.target.x)
-            .attr('y2', (d: any) => d.target.y);
-
-          node
-            .attr('transform', (d: any) => `translate(${d.x},${d.y})`);
+      newSimulation.on('tick', () => {
+        // Keep nodes inside the viewport bounds
+        nodes.forEach((nd: any) => {
+          if (nd.x == null || nd.y == null) return;
+          const rr = nd.isStarCenter ? centerRadius : baseRadius;
+          nd.x = Math.max(rr, Math.min(width - rr, nd.x));
+          nd.y = Math.max(rr, Math.min(height - rr, nd.y));
         });
 
-        setInitialized(true);
+        link
+          .attr('x1', (d: any) => d.source.x)
+          .attr('y1', (d: any) => d.source.y)
+          .attr('x2', (d: any) => d.target.x)
+          .attr('y2', (d: any) => d.target.y);
 
-        // Set up cleanup function
-        cleanup = () => {
-          newSimulation.stop();
-          setInitialized(false);
-          setSimulation(null);
-          tooltip.remove();
-        };
-      } catch (err) {
-        console.error('Error initializing graph:', err);
-        setError('Failed to initialize graph visualization');
+        node.attr('transform', (d: any) => `translate(${d.x},${d.y})`);
+      });
+
+      console.log('✅ D3 initialized — setting initialized=true');
+      setInitialized(true);
+
+      cleanup = () => {
+        newSimulation.stop();
+        console.log('🧹 D3 cleaned up');
         setInitialized(false);
+      };
+    } catch (err) {
+      console.error('Error initializing graph:', err);
+      setError('Failed to initialize graph visualization');
+      setInitialized(false);
+    }
+  };
+
+  raf1 = requestAnimationFrame(tryInit);
+
+  return () => {
+    if (raf1) cancelAnimationFrame(raf1);
+    if (raf2) cancelAnimationFrame(raf2);
+    if (cleanup) cleanup();
+  };
+  // Only re-run when "ready" state flips or counts of nodes/links change
+}, [isReady, nodes.length, links.length]);
+
+  // Dynamic color update without tearing down simulation
+  useEffect(() => {
+    if (!isReady || nodes.length === 0) return;
+    const el = svgRef.current;
+    if (!el) return;
+    const svg = d3.select(el);
+    svg.selectAll('g.nodes > g').each(function (d: any) {
+      let colorKey: string | undefined;
+      const det = d.details || {};
+      switch (colorCriteria) {
+        case 'severity': colorKey = det.severity; break;
+        case 'app_type': colorKey = det.app || det.appDisplayName || det.resourceDisplayName; break;
+        case 'src_ip': colorKey = det.src_ip || det.ipAddress; break;
+        case 'dest_ip': colorKey = det.dest_ip || det.dest; break;
+        default: colorKey = det.event_type || det.evt_type || det.eventtype || d.type || d.dataset; break;
       }
+      const nodeColor = (colorKey && colors[colorKey]) || '#999';
+      d3.select(this).select('circle').attr('fill', nodeColor);
+      d3.select(this).select('rect').attr('fill', nodeColor);
+      d3.select(this).select('path').attr('fill', nodeColor); // covers triangle/diamond/pentagon
     });
+  }, [colors, colorCriteria, isReady, nodes.length]);
 
-    // Return cleanup function
-    return () => {
-      cancelAnimationFrame(frameId);
-      if (cleanup) cleanup();
-    };
-  }, [isReady, nodes, links, colors, shapes, onNodeClick]);  // Include all required dependencies
-
-  // Drag behavior
-  const drag = (simulation: Simulation) => {
+  // Drag
+  const drag = (sim: Simulation) => {
     function dragstarted(event: DragEvent) {
-      if (!event.active) simulation.alphaTarget(0.3).restart();
+      if (!event.active) sim.alphaTarget(0.3).restart();
       event.subject.fx = event.subject.x;
       event.subject.fy = event.subject.y;
     }
-
     function dragged(event: DragEvent) {
-      event.subject.fx = event.x;
-      event.subject.fy = event.y;
+      // Clamp dragged position within bounds
+      const el = svgRef.current;
+      if (el) {
+        const r = el.getBoundingClientRect();
+        const w = r.width || 800;
+        const h = r.height || 600;
+        const clampX = Math.max(12, Math.min(w - 12, event.x));
+        const clampY = Math.max(12, Math.min(h - 12, event.y));
+        event.subject.fx = clampX;
+        event.subject.fy = clampY;
+      } else {
+        event.subject.fx = event.x;
+        event.subject.fy = event.y;
+      }
     }
-
     function dragended(event: DragEvent) {
-      if (!event.active) simulation.alphaTarget(0);
+      if (!event.active) sim.alphaTarget(0);
       event.subject.fx = null;
       event.subject.fy = null;
     }
-
-    return d3.drag()
-      .on('start', dragstarted)
-      .on('drag', dragged)
-      .on('end', dragended);
+    return d3.drag().on('start', dragstarted).on('drag', dragged).on('end', dragended);
   };
 
-  // Effect to handle initialization
-  useEffect(() => {
-    if (!isReady || !svgRef.current) return;
-    
-    // Small delay to ensure DOM is fully ready
-    const timer = setTimeout(() => {
-      const svgElement = svgRef.current;
-      if (svgElement && nodes.length > 0) {
-        const svgDimensions = svgElement.getBoundingClientRect();
-        if (svgDimensions.width > 0 && svgDimensions.height > 0) {
-          setInitialized(false); // Reset initialization to trigger visualization
-        }
-      }
-    }, 100);
-    
-    return () => clearTimeout(timer);
-  }, [isReady, nodes.length]);
+  // Keep prior initialization unless the topology size changes; the D3 effect will
+  // re-run on nodes/links length changes and handle cleanup/re-init there.
 
-  // Reset ready state when data changes
-  useEffect(() => {
-    setIsReady(false);
-    setInitialized(false);
-  }, [logs, selectedRelationship]);
-
-  // Always render based on state
+  // ---------- Render ----------
   if (!logs || logs.length === 0) {
     return (
-      <div className="w-full h-full flex items-center justify-center text-neutral-400">
+      <div className="w-full h-full flex items-center justify-center text-neutral-400 min-h-[480px]">
         Upload a dataset file to visualize relationships
       </div>
     );
@@ -435,7 +615,7 @@ const ObsidianGraph = ({ logs, selectedRelationship, colors, shapes, onNodeClick
 
   if (error) {
     return (
-      <div className="w-full h-full flex items-center justify-center text-red-400">
+      <div className="w-full h-full flex items-center justify-center text-red-400 min-h-[480px]">
         {error}
       </div>
     );
@@ -443,50 +623,50 @@ const ObsidianGraph = ({ logs, selectedRelationship, colors, shapes, onNodeClick
 
   if (nodes.length === 0 && logs.length > 0) {
     return (
-      <div className="w-full h-full flex items-center justify-center text-neutral-400">
+      <div className="w-full h-full flex items-center justify-center text-neutral-400 min-h-[480px]">
         Processing {logs.length} logs...
       </div>
     );
   }
 
-  if (!initialized && isReady) {
-    return (
-      <div className="w-full h-full flex items-center justify-center text-neutral-400">
-        Initializing graph visualization...
-      </div>
-    );
-  }
+  // Note: don't early-return here; keep the SVG in the DOM so D3 can attach to it.
 
-
-
-  return (
-    <div className="w-full h-full relative">
-      <div className="w-full h-full">
-        <svg ref={svgRef} className="w-full h-full bg-neutral-900" />
-      </div>
-      {!isReady && nodes.length > 0 && (
-        <div className="absolute top-4 left-1/2 transform -translate-x-1/2">
-          <button
-            onClick={() => {
-              if (svgRef.current) {
-                console.log('Generate button clicked, svg ref exists');
-                console.log('SVG dimensions:', {
-                  width: svgRef.current.getBoundingClientRect().width,
-                  height: svgRef.current.getBoundingClientRect().height
-                });
-                setIsReady(true);
-              } else {
-                console.error('SVG ref not available');
-              }
-            }}
-            className="px-4 py-2 bg-yellow-400 text-black rounded hover:bg-yellow-700 transition-colors"
-          >
-            Generate Graph ({nodes.length} nodes)
-          </button>
-        </div>
-      )}
+  // 3) Make sure the container has a real height (so layout never measures 0x0)
+return (
+  <div ref={containerRef} className="w-full h-full relative min-h-[480px]">
+    <div className="w-full h-full">
+      <svg ref={svgRef} className="w-full h-full bg-neutral-900" />
     </div>
-  );
+    {/* Overlay states */}
+    {!isReady && nodes.length > 0 && (
+      <div className="absolute inset-0 flex items-center justify-center bg-neutral-900/70 backdrop-blur-sm">
+        <button
+          onClick={() => {
+            const el = svgRef.current;
+            if (el) {
+              const r = el.getBoundingClientRect();
+              console.log('Generate clicked; svg:', { w: r.width, h: r.height });
+              if (r.width === 0 || r.height === 0) {
+                console.warn('SVG has zero size; parent might be collapsed/height=0');
+              }
+              setIsReady(true);
+            } else {
+              console.error('SVG ref not available');
+            }
+          }}
+          className="px-4 py-2 bg-yellow-400 text-black rounded hover:bg-yellow-500 transition-colors shadow"
+        >
+          Initialize Graph ({nodes.length} nodes / {links.length} links)
+        </button>
+      </div>
+    )}
+    {isReady && !initialized && (
+      <div className="absolute top-2 left-2 px-2 py-1 text-xs rounded bg-neutral-800 text-neutral-300 animate-pulse">
+        Initializing force simulation...
+      </div>
+    )}
+  </div>
+);
 };
 
 export default ObsidianGraph;
