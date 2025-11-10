@@ -44,9 +44,32 @@ export type DbDataset = {
     dataset_path: string;
     added_at: string;
 };
+
 export type ClientListResponse = {
     count: number;
     items: Array<{ record: DbDataset }>;
+};
+
+export enum RelationshipTypes {
+    IP_CONNECTION = "IP Connection",
+    USER_EVENT = "User Event",
+    APP_EVENT = "App Event",
+    HOST_EVENT = "Host Event",
+    THREAT_INDICATOR = "Threat Indicator"
+}
+
+export type NodeData = {
+    id: string;
+    type: string;
+    value: string;
+    dataset: string;
+    details: Log;
+};
+
+export type LinkData = {
+    source: string;
+    target: string;
+    type: RelationshipTypes;
 };
 export type ClientOneResponse = { record: DbDataset };
 
