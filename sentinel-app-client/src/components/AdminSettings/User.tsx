@@ -476,7 +476,9 @@ export default function UserPage() {
                                 <TableCell>{user.username}</TableCell>
                                 <TableCell>{user.is_admin ? "Yes" : "No"}</TableCell>
                                 <TableCell className="text-left">
-                                    {formatDate(user.last_login)}
+                                    {user.last_login
+                                        ? formatDate(new Date(user.last_login))
+                                        : "???"}
                                 </TableCell>
                                 <TableCell className="flex flex-row text-right space-x-2 justify-end">
                                     <Button
