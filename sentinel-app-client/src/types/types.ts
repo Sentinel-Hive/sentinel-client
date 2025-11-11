@@ -1,5 +1,5 @@
 export type Log = {
-    id: number;
+    id: string;
     message: string;
     type: string;
     src_ip?: string;
@@ -13,6 +13,18 @@ export type Log = {
     status?: string;
     host?: string;
     timestamp?: string;
+
+    _time?: string;
+    createdDateTime?: string;
+    conditionalAccessStatus?: string;
+    riskLevelDuringSignIn?: string;
+    appDisplayName?: string;
+    ipAddress?: string;
+    dest?: string;
+    userPrincipalName?: string;
+    threatIndicator?: string;
+
+    raw?: Record<string, unknown>;
 };
 
 export type DatasetItem = {
@@ -48,7 +60,7 @@ export type JsonValue =
 
 export type RawLog = {
     _raw?: string;
-    id?: number;
+    id: number;
     appDisplayName?: string;
     resourceDisplayName?: string;
     conditionalAccessStatus?: string;

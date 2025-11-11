@@ -1,179 +1,255 @@
-// src/pages/Datasets.tsx
-import { useCallback, useMemo, useRef, useState } from "react";
-import { UploadCloud, FileText, Trash2 } from "lucide-react";
-import { toast } from "sonner";
-import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "../components/ui/card";
+import { useMemo, useState } from "react";
 import { Button } from "../components/ui/button";
+import DatasetViewer from "@/components/DatasetViewer";
+import { DatasetItem, JsonValue, Log, RawLog } from "@/types/types";
+import { useDatasets } from "@/store/datasetStore";
+import { formatSize } from "@/lib/utils";
 
-type LocalItem = {
-    id: string;
-    file: File;
+type LogRow = Log & {
+    datasetId: number;
+    datasetName: string;
+    raw: RawLog | null;
 };
 
 export default function Datasets() {
-    const [items, setItems] = useState<LocalItem[]>([]);
-    const inputRef = useRef<HTMLInputElement | null>(null);
+    const datasets = useDatasets();
+    const [viewerDataset, setViewerDataset] = useState<DatasetItem | null>(null);
 
-    const onFiles = useCallback((files: FileList | null) => {
-        if (!files || files.length === 0) return;
+    const isJsonObject = (value: unknown): value is RawLog =>
+        typeof value === "object" && value !== null && !Array.isArray(value);
 
-        const next: LocalItem[] = [];
-        Array.from(files).forEach((f) => {
-            const id = `${f.name}-${f.size}-${f.lastModified}-${crypto.randomUUID()}`;
-            next.push({ id, file: f });
-        });
+    const coerceLogFromRaw = (raw: RawLog, fallbackId: number): Log => {
+        const messageCandidates = [
+            "message",
+            "msg",
+            "log",
+            "description",
+            "event",
+            "detail",
+            "text",
+        ];
 
-        setItems((prev) => [...next, ...prev]);
-        toast.success(`${files.length} file${files.length > 1 ? "s" : ""} added`);
-    }, []);
-
-    const onDrop = useCallback(
-        (e: React.DragEvent<HTMLDivElement>) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onFiles(e.dataTransfer.files ?? null);
-        },
-        [onFiles]
-    );
-
-    const totalSize = useMemo(() => items.reduce((acc, it) => acc + it.file.size, 0), [items]);
-
-    const removeItem = (id: string) => {
-        setItems((prev) => prev.filter((x) => x.id !== id));
-    };
-
-    const clearAll = () => setItems([]);
-
-    const handleUpload = async () => {
-        if (items.length === 0) {
-            toast.info("No files selected");
-            return;
+        let message: string | undefined;
+        for (const key of messageCandidates) {
+            const value = raw[key];
+            if (typeof value === "string" && value.trim() !== "") {
+                message = value;
+                break;
+            }
         }
-        toast.success(`Pretending to upload ${items.length} file${items.length > 1 ? "s" : ""}`);
+
+        if (!message) {
+            const serialized = JSON.stringify(raw);
+            const maxLen = 200;
+            message =
+                serialized.length > maxLen
+                    ? `${serialized.slice(0, maxLen - 3)}...`
+                    : serialized || "[empty record]";
+        }
+
+        const rawEventType = raw.eventtype;
+        let eventTypeString: string | undefined;
+        if (typeof rawEventType === "string") {
+            eventTypeString = rawEventType;
+        } else if (Array.isArray(rawEventType) && rawEventType.length > 0) {
+            const first = rawEventType[0];
+            if (typeof first === "string") {
+                eventTypeString = first;
+            }
+        }
+
+        const severity = typeof raw.severity === "string" ? raw.severity : undefined;
+
+        const type = eventTypeString ?? severity ?? "info";
+
+        const timestamp =
+            raw.createdDateTime ??
+            raw._time ??
+            (typeof raw.timestamp === "string" ? raw.timestamp : undefined);
+
+        const srcIp = raw.src_ip ?? (typeof raw.ipAddress === "string" ? raw.ipAddress : undefined);
+
+        const destIp = typeof raw.dest === "string" ? raw.dest : undefined;
+
+        const user =
+            raw.user ??
+            (typeof raw.userPrincipalName === "string" ? raw.userPrincipalName : undefined);
+
+        const app = typeof raw.appDisplayName === "string" ? raw.appDisplayName : undefined;
+
+        let statusValue: string | undefined;
+        if (typeof raw.status === "object" && raw.status !== null) {
+            const failure = (raw.status as { failureReason?: string }).failureReason;
+            if (typeof failure === "string") {
+                statusValue = failure;
+            }
+        }
+
+        const host = typeof raw.host === "string" ? raw.host : undefined;
+
+        const destPort = typeof raw.dest_port === "string" ? raw.dest_port : undefined;
+        const srcPort = typeof raw.src_port === "string" ? raw.src_port : undefined;
+
+        return {
+            id: raw.id.toString() ?? fallbackId,
+            message,
+            type,
+            src_ip: srcIp,
+            dest_ip: destIp,
+            user,
+            event_type: eventTypeString,
+            severity,
+            app,
+            dest_port: destPort,
+            src_port: srcPort,
+            status: statusValue,
+            host,
+            timestamp,
+        };
     };
+
+    const parseDatasetToLogRows = (dataset: DatasetItem): LogRow[] => {
+        if (!dataset.content) return [];
+
+        const text = dataset.content.trim();
+        if (!text) return [];
+
+        const rows: LogRow[] = [];
+        let fallbackId = 1;
+
+        // Try full JSON document
+        try {
+            const parsed = JSON.parse(text) as JsonValue;
+            if (Array.isArray(parsed)) {
+                parsed.forEach((item) => {
+                    if (isJsonObject(item)) {
+                        const log = coerceLogFromRaw(item, fallbackId++);
+                        rows.push({
+                            ...log,
+                            datasetId: dataset.id,
+                            datasetName: dataset.name,
+                            raw: item,
+                        });
+                    }
+                });
+                if (rows.length > 0) return rows;
+            } else if (isJsonObject(parsed)) {
+                const log = coerceLogFromRaw(parsed, fallbackId++);
+                rows.push({
+                    ...log,
+                    datasetId: dataset.id,
+                    datasetName: dataset.name,
+                    raw: parsed,
+                });
+                return rows;
+            }
+        } catch (error) {
+            console.warn("Dataset is not a single JSON document, trying line-by-line", {
+                datasetId: dataset.id,
+                error,
+            });
+        }
+
+        const lines = text.split(/\r?\n/);
+        for (const rawLine of lines) {
+            const ln = rawLine.trim();
+            if (!ln) continue;
+            try {
+                const parsedLine = JSON.parse(ln) as JsonValue;
+                if (isJsonObject(parsedLine)) {
+                    const log = coerceLogFromRaw(parsedLine, fallbackId++);
+                    rows.push({
+                        ...log,
+                        datasetId: dataset.id,
+                        datasetName: dataset.name,
+                        raw: parsedLine,
+                    });
+                }
+            } catch (error) {
+                console.warn("Failed to parse JSON line in dataset", {
+                    datasetId: dataset.id,
+                    line: ln,
+                    error,
+                });
+            }
+        }
+
+        return rows;
+    };
+
+    const logsByDatasetId: Record<number, LogRow[]> = useMemo(() => {
+        const map: Record<number, LogRow[]> = {};
+        datasets.forEach((ds) => {
+            map[ds.id] = parseDatasetToLogRows(ds);
+        });
+        return map;
+    }, [datasets]);
 
     return (
-        <div className="mx-auto max-w-5xl p-6">
-            <h2 className="mb-4 text-2xl font-semibold">Datasets</h2>
-
-            <Card className="border-neutral-800 bg-neutral-900">
-                <CardHeader>
-                    <CardTitle className="text-lg">Upload local files</CardTitle>
-                </CardHeader>
-
-                <CardContent className="space-y-4">
-                    {/* Dropzone */}
-                    <div
-                        onDrop={onDrop}
-                        onDragOver={(e) => {
-                            e.preventDefault();
-                            e.dataTransfer.dropEffect = "copy";
-                        }}
-                        className="relative flex h-40 w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed
-                       border-neutral-700 bg-neutral-900/60 text-neutral-300 transition
-                       hover:border-[hsl(var(--primary))]/70 hover:bg-neutral-800/40"
-                    >
-                        <UploadCloud className="mb-2 h-7 w-7 text-[hsl(var(--primary))]" />
-                        <p className="text-sm">
-                            Drag & drop files here, or{" "}
-                            <button
-                                type="button"
-                                onClick={() => inputRef.current?.click()}
-                                className="font-semibold text-[hsl(var(--primary))] underline underline-offset-4"
-                            >
-                                browse
-                            </button>
-                        </p>
-                        <p className="mt-1 text-xs text-neutral-400">
-                            Any file type. Multiple files supported.
-                        </p>
-
-                        <input
-                            ref={inputRef}
-                            type="file"
-                            multiple
-                            onChange={(e) => onFiles(e.target.files)}
-                            className="sr-only"
-                            aria-hidden="true"
-                            tabIndex={-1}
-                        />
-                    </div>
-
-                    {/* Selected files list */}
-                    {items.length > 0 && (
-                        <div className="rounded-xl border border-neutral-800">
-                            <div className="flex items-center justify-between border-b border-neutral-800 p-3">
-                                <div className="text-sm text-neutral-300">
-                                    {items.length} file{items.length > 1 ? "s" : ""} •{" "}
-                                    {formatBytes(totalSize)}
-                                </div>
-                                <Button
-                                    variant="ghost"
-                                    onClick={clearAll}
-                                    className="h-8 rounded-lg px-2 text-xs text-neutral-300 hover:bg-neutral-800/60"
-                                >
-                                    Clear all
-                                </Button>
-                            </div>
-
-                            <ul className="divide-y divide-neutral-800">
-                                {items.map(({ id, file }) => (
-                                    <li
-                                        key={id}
-                                        className="flex items-center justify-between gap-3 p-3"
-                                    >
-                                        <div className="flex min-w-0 items-center gap-3">
-                                            <FileText className="h-4 w-4 shrink-0 text-yellow-400" />
-                                            <div className="min-w-0">
-                                                <div className="truncate text-sm text-neutral-100">
-                                                    {file.name}
-                                                </div>
-                                                <div className="text-xs text-neutral-400">
-                                                    {file.type || "unknown"} •{" "}
-                                                    {formatBytes(file.size)}
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <Button
-                                            variant="ghost"
-                                            className="h-8 w-8 rounded-lg p-0 text-neutral-300 hover:bg-neutral-800/60"
-                                            onClick={() => removeItem(id)}
-                                            aria-label={`Remove ${file.name}`}
-                                            title="Remove"
-                                        >
-                                            <Trash2 className="h-4 w-4" />
-                                        </Button>
-                                    </li>
-                                ))}
-                            </ul>
+        <>
+            <div className="flex-1 my-4 mr-4">
+                {datasets.length === 0 ? (
+                    <div className="flex h-full items-center justify-center">
+                        <div className="text-sm text-muted-foreground p-6 border rounded-md">
+                            Toggle one or more datasets on the left to see them here.
                         </div>
-                    )}
-                </CardContent>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-1 lg:grid-cols-2 gap-3">
+                        {datasets.map((ds) => {
+                            const logsCount = (logsByDatasetId[ds.id] ?? []).length;
+                            return (
+                                <div
+                                    key={ds.id}
+                                    className="p-4 border border-yellow-400 rounded-lg bg-[hsl(var(--bg))] flex flex-col justify-between"
+                                >
+                                    <div>
+                                        <div className="font-semibold truncate mb-1">{ds.name}</div>
+                                        <div className="text-xs text-muted-foreground mb-1">
+                                            Path: {ds.path}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground mb-1">
+                                            Added: {ds.addedAt}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground mb-2">
+                                            Size:{" "}
+                                            {typeof ds.size === "number"
+                                                ? formatSize(ds.size)
+                                                : "Unknown"}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground mb-2">
+                                            Logs parsed: {logsCount}
+                                        </div>
+                                        {ds.content && (
+                                            <pre className="text-[10px] max-h-24 overflow-hidden whitespace-pre-wrap break-words border rounded p-1 bg-black/40">
+                                                {ds.content.slice(0, 300)}
+                                                {ds.content.length > 300 ? "..." : ""}
+                                            </pre>
+                                        )}
+                                    </div>
+                                    <div className="flex justify-between items-center mt-3">
+                                        <Button size="sm" onClick={() => setViewerDataset(ds)}>
+                                            Inspect
+                                        </Button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
 
-                <CardFooter className="flex justify-end gap-2">
-                    <Button
-                        variant="ghost"
-                        onClick={() => inputRef.current?.click()}
-                        className="rounded-xl bg-neutral-800/50 text-neutral-100 hover:bg-neutral-800"
-                    >
-                        Add more
-                    </Button>
-                    <Button
-                        onClick={handleUpload}
-                        className="rounded-xl bg-[hsl(var(--primary))] text-black hover:bg-yellow-600"
-                    >
-                        Upload
-                    </Button>
-                </CardFooter>
-            </Card>
-        </div>
+            {viewerDataset && (
+                <DatasetViewer
+                    open={!!viewerDataset}
+                    dataset={viewerDataset}
+                    onOpenChange={(open) => {
+                        if (!open) {
+                            setViewerDataset(null);
+                        }
+                    }}
+                />
+            )}
+        </>
     );
-}
-
-function formatBytes(n: number) {
-    if (n < 1024) return `${n} B`;
-    const i = Math.floor(Math.log(n) / Math.log(1024));
-    const sizes = ["B", "KB", "MB", "GB", "TB"];
-    return `${(n / Math.pow(1024, i)).toFixed(1)} ${sizes[i]}`;
 }
