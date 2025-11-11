@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Upload, FileText, CheckCircle, AlertTriangle, Trash2 } from "lucide-react";
+import { Upload, FileText, CheckCircle, AlertTriangle, Trash2, Loader } from "lucide-react";
 import { DatasetItem } from "@/types/types";
 import { toast } from "sonner";
 import {
@@ -371,7 +371,9 @@ export default function Dataset() {
                             >
                                 {isBulkUploading ? (
                                     <>
-                                        <span className="animate-spin">🔄</span>
+                                        <span className="animate-spin">
+                                            <Loader />
+                                        </span>
                                         <span>Uploading…</span>
                                     </>
                                 ) : (

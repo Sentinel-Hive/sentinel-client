@@ -1,6 +1,7 @@
 import { ClientListResponse, DatasetItem, DbDataset } from "@/types/types";
 import { authFetch } from "./session";
 import { useDatasetStore } from "@/store/datasetStore";
+import { toast } from "sonner";
 function toDatasetItem(r: DbDataset): DatasetItem {
     return {
         id: r.id,
@@ -36,7 +37,7 @@ export async function loadAllDatasets({
     });
 
     if (res.status === 404) {
-        useDatasetStore.getState().clearDatasets();
+        toast.error(`An error occurred fetching the datasets. Error: ${res.status}`);
         return [];
     }
 
@@ -56,13 +57,21 @@ export async function loadAllDatasets({
 
     const data = (await res.json()) as ClientListResponse;
 
-    const datasets = (data.items ?? []).map(({ record }) => toDatasetItem(record));
+    const fetchedDatasets = (data.items ?? []).map(({ record }) => toDatasetItem(record));
 
     const store = useDatasetStore.getState();
-    store.clearDatasets();
-    datasets.forEach((d) => store.addDataset(d));
+    const existing = store.datasets;
+    const existingById = new Map(existing.map((d) => [d.id, d]));
 
-    return datasets;
+    for (const d of fetchedDatasets) {
+        if (existingById.has(d.id)) {
+            store.updateDataset(d.id, d);
+        } else {
+            store.addDataset(d);
+        }
+    }
+
+    return fetchedDatasets;
 }
 
 export async function postDatasetToServer(payload: DatasetItem) {
