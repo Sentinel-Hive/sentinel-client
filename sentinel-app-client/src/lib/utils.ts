@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { DatasetItem, JsonValue, Log, RawLog } from "@/types/types";
+import { DatasetItem, JsonValue, Log } from "@/types/types";
 
 export function getLogField(log: Log, field: string): string {
     switch (field) {
