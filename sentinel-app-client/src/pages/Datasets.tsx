@@ -2,8 +2,10 @@ import { useMemo, useState } from "react";
 import { Button } from "../components/ui/button";
 import DatasetViewer from "@/components/DatasetViewer";
 import { DatasetItem, JsonValue, Log, RawLog } from "@/types/types";
-import { useDatasets } from "@/store/datasetStore";
+import { useDatasets, useDatasetStore } from "@/store/datasetStore";
 import { formatSize } from "@/lib/utils";
+import { fetchDatasetContent } from "@/lib/dataHandler";
+import { toast } from "sonner";
 
 type LogRow = Log & {
     datasetId: number;
@@ -13,6 +15,7 @@ type LogRow = Log & {
 
 export default function Datasets() {
     const datasets = useDatasets();
+    const { updateDataset } = useDatasetStore();
     const [viewerDataset, setViewerDataset] = useState<DatasetItem | null>(null);
 
     const isJsonObject = (value: unknown): value is RawLog =>
@@ -185,9 +188,43 @@ export default function Datasets() {
         return map;
     }, [datasets]);
 
+    const loadDataset = async (id: number, path: string) => {
+        try {
+            const res = await fetchDatasetContent(id, path);
+
+            if (res != null) {
+                updateDataset(id, {
+                    content: res,
+                });
+                toast.success(`Successfully loaded content from dataset id:${id}`);
+            }
+        } catch (err) {
+            console.error("Failed to load dataset content", err);
+        }
+    };
+
+    const loadAllDatasets = async () => {
+        for (const ds of datasets) {
+            try {
+                await loadDataset(ds.id, ds.path);
+            } catch {
+                toast.error(`Unable to fetch dataset: ${ds.id}-${ds.name}`);
+            }
+        }
+    };
+
     return (
         <>
             <div className="flex-1 my-4 mr-4">
+                <span className="flex justify-end w-full">
+                    <Button
+                        size="lg"
+                        className="bg-yellow-500 hover:bg-yellow-400 text-black text-lg m-1"
+                        onClick={() => loadAllDatasets()}
+                    >
+                        Load All
+                    </Button>
+                </span>
                 {datasets.length === 0 ? (
                     <div className="flex h-full items-center justify-center">
                         <div className="text-sm text-muted-foreground p-6 border rounded-md">
@@ -231,6 +268,14 @@ export default function Datasets() {
                                         <Button size="sm" onClick={() => setViewerDataset(ds)}>
                                             Inspect
                                         </Button>
+                                        {!ds.content && (
+                                            <Button
+                                                size="sm"
+                                                onClick={() => loadDataset(ds.id, ds.path)}
+                                            >
+                                                Load Dataset
+                                            </Button>
+                                        )}
                                     </div>
                                 </div>
                             );

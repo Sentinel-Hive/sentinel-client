@@ -62,6 +62,34 @@ export default function Dataset() {
     const isSaving = uploadStatus.startsWith("Saving");
     const humanCount = useMemo(() => String(selectedFiles.length || 0), [selectedFiles.length]);
 
+    const validateJsonLike = (text: string, filename: string) => {
+        try {
+            JSON.parse(text);
+            return;
+        } catch {
+            // do nothing
+        }
+
+        const lines = text
+            .split(/\r?\n/)
+            .map((l) => l.trim())
+            .filter((l) => l.length > 0);
+
+        if (lines.length === 0) {
+            throw new Error(`File "${filename}" does not contain any JSON content.`);
+        }
+
+        try {
+            for (const line of lines) {
+                JSON.parse(line);
+            }
+        } catch {
+            throw new Error(
+                `File "${filename}" is not valid JSON, JSONL, or NDJSON. Each non-empty line must be valid JSON.`
+            );
+        }
+    };
+
     const nextTempId = React.useCallback(() => {
         let candidate: number;
         const used = new Set(stagedItems.map((i) => i.id));
@@ -74,9 +102,15 @@ export default function Dataset() {
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const fileList = event.target.files;
         if (!fileList) return;
-        const files: File[] = Array.from(fileList).filter(
-            (file) => file.type === "application/json" || file.name.toLowerCase().endsWith(".json")
-        );
+
+        const files: File[] = Array.from(fileList).filter((file) => {
+            const lower = file.name.toLowerCase();
+            if (lower.endsWith(".json") || lower.endsWith(".jsonl") || lower.endsWith(".ndjson")) {
+                return true;
+            }
+            return file.type === "application/json";
+        });
+
         setSelectedFiles(files);
         setUploadStatus("");
         setIsError(false);
@@ -162,7 +196,7 @@ export default function Dataset() {
 
     const handleStageData = async () => {
         if (selectedFiles.length === 0) {
-            setUploadStatus("Please select one or more JSON files.");
+            setUploadStatus("Please select one or more JSON/JSONL/NDJSON files.");
             setIsError(true);
             return;
         }
@@ -174,15 +208,12 @@ export default function Dataset() {
             const newItems: DatasetItem[] = [];
             for (const f of selectedFiles) {
                 const text = await f.text();
-                try {
-                    JSON.parse(text);
-                } catch {
-                    throw new Error(`File "${f.name}" is not valid JSON.`);
-                }
+
+                validateJsonLike(text, f.name);
 
                 newItems.push({
                     id: nextTempId(),
-                    name: f.name.replace(/\.json$/i, ""),
+                    name: f.name.replace(/\.(json|jsonl|ndjson)$/i, ""),
                     path: "",
                     size: f.size,
                     lastModified: f.lastModified,
@@ -266,7 +297,7 @@ export default function Dataset() {
                         <Input
                             id="json-files"
                             type="file"
-                            accept=".json, .jsonl, .ndjson,application/json"
+                            accept=".json, .jsonl, .ndjson"
                             multiple
                             onChange={handleFileChange}
                             className="flex-1"
