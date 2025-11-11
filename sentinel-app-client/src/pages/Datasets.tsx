@@ -6,6 +6,7 @@ import { useDatasets, useDatasetStore } from "@/store/datasetStore";
 import { formatSize } from "@/lib/utils";
 import { fetchDatasetContent } from "@/lib/dataHandler";
 import { toast } from "sonner";
+import { Download } from "lucide-react";
 
 type LogRow = Log & {
     datasetId: number;
@@ -219,9 +220,10 @@ export default function Datasets() {
                 <span className="flex justify-end w-full">
                     <Button
                         size="lg"
-                        className="bg-yellow-500 hover:bg-yellow-400 text-black text-lg m-1"
+                        className="border border-yellow-400 text-lg m-1"
                         onClick={() => loadAllDatasets()}
                     >
+                        <Download />
                         Load All
                     </Button>
                 </span>

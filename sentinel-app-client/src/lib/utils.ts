@@ -1,5 +1,237 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { DatasetItem, JsonValue, Log, RawLog } from "@/types/types";
+
+export function getLogField(log: Log, field: string): string {
+    switch (field) {
+        case "src_ip":
+            return log.src_ip ?? "";
+        case "dest_ip":
+            return log.dest_ip ?? "";
+        case "user":
+            return log.user ?? "";
+        case "event_type":
+            return log.event_type ?? "";
+        case "severity":
+            return log.severity ?? "";
+        case "app":
+            return log.app ?? "";
+        case "dest_port":
+            return log.dest_port ?? "";
+        case "src_port":
+            return log.src_port ?? "";
+        case "status":
+            return log.status ?? "";
+        case "host":
+            return log.host ?? "";
+        case "timestamp":
+            return log.timestamp ?? "";
+        case "_time":
+            return log._time ?? "";
+        case "createdDateTime":
+            return log.createdDateTime ?? "";
+        case "conditionalAccessStatus":
+            return log.conditionalAccessStatus ?? "";
+        case "riskLevelDuringSignIn":
+            return log.riskLevelDuringSignIn ?? "";
+        case "appDisplayName":
+            return log.appDisplayName ?? "";
+        case "ipAddress":
+            return log.ipAddress ?? "";
+        case "dest":
+            return log.dest ?? "";
+        case "userPrincipalName":
+            return log.userPrincipalName ?? "";
+        case "threatIndicator":
+            return log.threatIndicator ?? "";
+        default: {
+            if (log.raw && field in log.raw) {
+                const value = log.raw[field];
+                if (
+                    typeof value === "string" ||
+                    typeof value === "number" ||
+                    typeof value === "boolean"
+                ) {
+                    return String(value);
+                }
+            }
+            return "";
+        }
+    }
+}
+
+export function getLogTimestamp(log: Log): string | undefined {
+    return log.timestamp || log.createdDateTime || log._time;
+}
+
+// Generic JSON-object helper based on your JsonValue type
+type JsonObject = { [key: string]: JsonValue };
+
+function isJsonObject(value: JsonValue): value is JsonObject {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// Build a Log from a generic JSON object, not assuming RawLog shape too strictly
+function jsonObjectToLog(obj: JsonObject, fallbackId: string): Log {
+    const idValue = obj["id"];
+    const id =
+        typeof idValue === "string" || typeof idValue === "number" ? String(idValue) : fallbackId;
+
+    const rawField = obj["_raw"];
+    const statusField = obj["status"];
+    const eventTypeField = obj["eventtype"];
+
+    const messageFromRaw = typeof rawField === "string" ? rawField : "";
+    const messageFromStatus =
+        isJsonObject(statusField) && typeof statusField["failureReason"] === "string"
+            ? statusField["failureReason"]
+            : "";
+
+    const messageFallback = messageFromRaw || messageFromStatus || JSON.stringify(obj);
+
+    const eventTypeString =
+        typeof eventTypeField === "string"
+            ? eventTypeField
+            : Array.isArray(eventTypeField)
+              ? eventTypeField.map((v) => String(v)).join(",")
+              : "info";
+
+    const primaryEventType =
+        typeof eventTypeField === "string"
+            ? eventTypeField
+            : Array.isArray(eventTypeField) && eventTypeField.length > 0
+              ? String(eventTypeField[0])
+              : undefined;
+
+    const srcIp =
+        typeof obj["src_ip"] === "string"
+            ? obj["src_ip"]
+            : typeof obj["ipAddress"] === "string"
+              ? obj["ipAddress"]
+              : undefined;
+
+    const timestampValue =
+        typeof obj["createdDateTime"] === "string"
+            ? obj["createdDateTime"]
+            : typeof obj["_time"] === "string"
+              ? obj["_time"]
+              : undefined;
+
+    return {
+        id,
+        message: messageFallback,
+        type: eventTypeString,
+
+        src_ip: srcIp,
+        dest_ip: typeof obj["dest"] === "string" ? obj["dest"] : undefined,
+        user: typeof obj["user"] === "string" ? obj["user"] : undefined,
+        event_type: primaryEventType,
+        severity:
+            typeof obj["riskLevelDuringSignIn"] === "string"
+                ? obj["riskLevelDuringSignIn"]
+                : undefined,
+        app: typeof obj["appDisplayName"] === "string" ? obj["appDisplayName"] : undefined,
+        dest_port: undefined,
+        src_port: undefined,
+        status:
+            typeof obj["conditionalAccessStatus"] === "string"
+                ? obj["conditionalAccessStatus"]
+                : undefined,
+        host: typeof obj["host"] === "string" ? obj["host"] : undefined,
+        timestamp: timestampValue,
+
+        _time: typeof obj["_time"] === "string" ? obj["_time"] : undefined,
+        createdDateTime:
+            typeof obj["createdDateTime"] === "string" ? obj["createdDateTime"] : undefined,
+        conditionalAccessStatus:
+            typeof obj["conditionalAccessStatus"] === "string"
+                ? obj["conditionalAccessStatus"]
+                : undefined,
+        riskLevelDuringSignIn:
+            typeof obj["riskLevelDuringSignIn"] === "string"
+                ? obj["riskLevelDuringSignIn"]
+                : undefined,
+        appDisplayName:
+            typeof obj["appDisplayName"] === "string" ? obj["appDisplayName"] : undefined,
+        ipAddress: typeof obj["ipAddress"] === "string" ? obj["ipAddress"] : undefined,
+        dest: typeof obj["dest"] === "string" ? obj["dest"] : undefined,
+        userPrincipalName:
+            typeof obj["userPrincipalName"] === "string" ? obj["userPrincipalName"] : undefined,
+        threatIndicator:
+            typeof obj["threatIndicator"] === "string" ? obj["threatIndicator"] : undefined,
+
+        raw: obj,
+    };
+}
+
+export function parseLogsFromContent(content: string | null | undefined): Log[] {
+    if (!content) return [];
+
+    const trimmed = content.trim();
+    if (trimmed.length === 0) return [];
+
+    const logs: Log[] = [];
+
+    let parsedWhole: JsonValue | null = null;
+    try {
+        parsedWhole = JSON.parse(trimmed) as JsonValue;
+    } catch {
+        parsedWhole = null;
+    }
+
+    let nextId = 1;
+
+    if (parsedWhole && Array.isArray(parsedWhole)) {
+        parsedWhole.forEach((item) => {
+            if (isJsonObject(item)) {
+                logs.push(jsonObjectToLog(item, String(nextId++)));
+            }
+        });
+        if (logs.length > 0) return logs;
+    }
+
+    const lines = trimmed.split(/\r?\n/);
+    for (const line of lines) {
+        const l = line.trim();
+        if (!l) continue;
+        try {
+            const parsedLine = JSON.parse(l) as JsonValue;
+            if (isJsonObject(parsedLine)) {
+                logs.push(jsonObjectToLog(parsedLine, String(nextId++)));
+            }
+        } catch {
+            // ignore malformed lines
+        }
+    }
+
+    return logs;
+}
+
+export function parseSQLQuery(q: string): Record<string, string> {
+    const out: Record<string, string> = {};
+    const regex = /(\w+)\s*=\s*['"]([^'"]+)['"]/g;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(q)) !== null) {
+        out[match[1]] = match[2];
+    }
+    return out;
+}
+
+export function uniqueFieldValues(logs: Log[], field: string): string[] {
+    const values = new Set<string>();
+    logs.forEach((log) => {
+        const value = getLogField(log, field);
+        if (value.length > 0) {
+            values.add(value);
+        }
+    });
+    return Array.from(values);
+}
+
+export function getDatasetLabel(dataset: DatasetItem): string {
+    if (dataset.name && dataset.name.length > 0) return dataset.name;
+    return String(dataset.id);
+}
 
 export function cn(...inputs: ClassValue[]): string {
     return twMerge(clsx(inputs));
