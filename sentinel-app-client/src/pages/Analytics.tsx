@@ -514,8 +514,6 @@ export default function Analytics() {
                                     dateTo={dateTo}
                                     onDateFromChange={setDateFrom}
                                     onDateToChange={setDateTo}
-                                    typeFilters={filters}
-                                    toggleTypeFilter={toggleTypeFilter}
                                     loadedFilterOptions={loadedFilterOptions}
                                     loadMoreFilterOptions={loadMoreFilterOptions}
                                 />
