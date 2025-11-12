@@ -1,5 +1,5 @@
 export type Log = {
-    id: number;
+    id: string;
     message: string;
     type: string;
     src_ip?: string;
@@ -13,17 +13,42 @@ export type Log = {
     status?: string;
     host?: string;
     timestamp?: string;
+
+    _time?: string;
+    createdDateTime?: string;
+    conditionalAccessStatus?: string;
+    riskLevelDuringSignIn?: string;
+    appDisplayName?: string;
+    ipAddress?: string;
+    dest?: string;
+    userPrincipalName?: string;
+    threatIndicator?: string;
+
+    raw?: Record<string, unknown>;
 };
 
 export type DatasetItem = {
-    id: string;
+    id: number;
     name: string;
-    size: number;
+    path: string;
+    size?: number;
     lastModified?: number;
-    content: string;
+    content?: string;
     addedAt: string;
-    updatedAt: string;
+    updatedAt?: string;
 };
+
+export type DbDataset = {
+    id: number;
+    dataset_name: string;
+    dataset_path: string;
+    added_at: string;
+};
+export type ClientListResponse = {
+    count: number;
+    items: Array<{ record: DbDataset }>;
+};
+export type ClientOneResponse = { record: DbDataset };
 
 export type RawLog = {
     _raw?: string;

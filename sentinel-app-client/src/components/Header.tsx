@@ -16,6 +16,7 @@ import AlertNotification, { Severity } from "./AlertNotification";
 import { useAlerts, onAlertAdded } from "../lib/alertsStore";
 import { useUser, useUserStore } from "../store/userStore";
 import { logout } from "../lib/session";
+import { loadAllDatasets } from "@/lib/dataHandler";
 import { onPopupAdded } from "../lib/popupsStore";
 
 const navLinkClass = "px-3 py-2 rounded-xl text-sm font-medium transition hover:bg-neutral-800/60";
@@ -87,9 +88,16 @@ export default function Header() {
             useUserStore.getState().clearUser();
             navigate("/login");
             setLoggingOut(false);
-            // keep justLoggedOut true briefly to allow other components to avoid
-            // redirect races; it will be cleared after a short timeout
             setTimeout(() => setJustLoggedOut(false), 800);
+        }
+    };
+
+    const handleSyncClick = async () => {
+        try {
+            await loadAllDatasets();
+            toast.success(`Synced all database record(s)`);
+        } catch {
+            toast.error("Unable to sync records. Please try again later.");
         }
     };
 
@@ -143,12 +151,12 @@ export default function Header() {
                 <div className="flex items-center gap-2">
                     <button
                         type="button"
-                        onClick={() => toast.info("This is not implemented yet")}
+                        onClick={() => handleSyncClick()}
                         aria-label="Refresh"
                         className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800/60 focus:outline-none focus:ring-2 focus:ring-neutral-700"
                     >
                         <RotateCw className="h-4 w-4" />
-                        <span className="hidden sm:inline">Refresh</span>
+                        <span className="hidden sm:inline">Sync</span>
                     </button>
 
                     {/* Notifications dropdown */}
