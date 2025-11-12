@@ -1,13 +1,28 @@
 // src/pages/Analytics.tsx
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "../components/ui/button";
-import LogUploader from "../components/LogUploader";
-import { Log } from "../types/types";
-import { ChevronsLeft, ChevronsRight, PanelTopClose, PanelBottomClose, X } from "lucide-react";
-import AnalyticsHeader from "../components/AnalyticsHeader";
+import { DatasetItem, Log } from "../types/types";
+import {
+    ChevronsLeft,
+    ChevronsRight,
+    PanelTopClose,
+    PanelBottomClose,
+    X,
+    ChevronDown,
+    ChevronUp,
+} from "lucide-react";
 import FilterPanel, { FilterField } from "../components/FilterPanel";
+import { useDatasets } from "@/store/datasetStore";
+import { Checkbox } from "../components/ui/checkbox";
+import {
+    getLogField,
+    getLogTimestamp,
+    parseLogsFromContent,
+    parseSQLQuery,
+    uniqueFieldValues,
+    getDatasetLabel,
+} from "@/lib/utils";
 
-// Include both event_type and evt_type so uploaded datasets using either key can be filtered.
 const filterFields: FilterField[] = [
     { key: "src_ip", label: "Source IP" },
     { key: "dest_ip", label: "Destination IP" },
@@ -24,92 +39,9 @@ const filterFields: FilterField[] = [
 const TITLE_H = 30;
 const DEFAULT_FILTERS_HEIGHT = 260;
 
-// helper to read arbitrary field off a log with alias support
-function getLogField(log: Log | (Log & Record<string, unknown>), field: string): string {
-    const record = log as Record<string, unknown>;
-    const aliases: Record<string, string[]> = {
-        // event type variants
-        event_type: ["evt_type", "eventtype"],
-        evt_type: ["event_type", "eventtype"],
-        // application display variants
-        app: ["appDisplayName", "resourceDisplayName"],
-        // user
-        user: ["userPrincipalName"],
-        // IPs
-        src_ip: ["ipAddress"],
-        dest_ip: ["dest"],
-        // severity naming drift
-        severity: ["riskLevelDuringSignIn"],
-        // status can be string or object; handled below
-        status: [],
-        // ports sometimes numeric
-        dest_port: [],
-        src_port: [],
-        // host passthrough
-        host: [],
-    };
-
-    const tryKeys = [field].concat(aliases[field] || []);
-    for (const k of tryKeys) {
-        const v = record[k];
-        if (v == null) continue;
-        if (k === "status") {
-            if (typeof v === "object" && v) {
-                const fr = (v as { failureReason?: string }).failureReason;
-                if (fr) return String(fr);
-            }
-            return String(v);
-        }
-        if (k === "eventtype") {
-            if (Array.isArray(v)) return v.filter(Boolean).join(", ");
-        }
-        return String(v);
-    }
-    return "";
-}
-
-// helper to get the best timestamp-like field
-function getLogTimestamp(log: Log | (Log & Record<string, unknown>)): string | undefined {
-    const record = log as Record<string, unknown>;
-    return (
-        log.timestamp ||
-        (typeof record.createdDateTime === "string" ? record.createdDateTime : undefined) ||
-        (typeof record._time === "string" ? record._time : undefined) ||
-        (typeof record.created_at === "string" ? record.created_at : undefined)
-    );
-}
-
-// Build display name: app + evt_type/event_type if available, else fallback to message
-function formatEventType(evtRaw: string): string {
-    if (!evtRaw) return "";
-    // Take last segment after dot if dotted (e.g., http.forbidden -> forbidden)
-    // If comma separated, take last non-empty trimmed part.
-    const cleaned = evtRaw.trim();
-    const commaParts = cleaned.split(',').map(p => p.trim()).filter(Boolean);
-    const lastComma = commaParts.length ? commaParts[commaParts.length - 1] : cleaned;
-    const dotParts = lastComma.split('.').filter(Boolean);
-    const core = dotParts.length ? dotParts[dotParts.length - 1] : lastComma;
-    // Replace underscores with space and title-case each word.
-    return core
-        .replace(/_/g, ' ')
-        .split(/\s+/)
-        .map(w => w.length ? w[0].toUpperCase() + w.slice(1) : w)
-        .join(' ');
-}
-
-function getDisplayName(log: Log | (Log & Record<string, unknown>)): string {
-    const record = log as Record<string, unknown>;
-    const app = (record.app ?? record.appDisplayName ?? "").toString();
-    const evtRaw = (record.evt_type ?? record.event_type ?? record.eventtype ?? "").toString();
-    const evtDisplay = formatEventType(evtRaw);
-    if (app && evtDisplay) return `${app} ${evtDisplay}`;
-    if (app) return app;
-    if (evtDisplay) return evtDisplay;
-    // fallback to id then message
-    return (record.message ?? record.id ?? "").toString();
-}
-
 export default function Analytics() {
+    const datasets = useDatasets();
+
     const [sidebarWidth, setSidebarWidth] = useState(300);
     const [isResizingSidebar, setIsResizingSidebar] = useState(false);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -122,11 +54,11 @@ export default function Analytics() {
     const sidebarRef = useRef<HTMLDivElement | null>(null);
     const savedLogSplitRef = useRef<number>(DEFAULT_FILTERS_HEIGHT);
 
+    const [selectedDatasets, setSelectedDatasets] = useState<DatasetItem[]>([]);
     const [logs, setLogs] = useState<Log[]>([]);
     const [displayedLogs, setDisplayedLogs] = useState<Log[]>([]);
     const [query, setQuery] = useState("");
-    const [uploading, setUploading] = useState(false);
-    const [uploadProgress, setUploadProgress] = useState(0);
+    const [filters, setFilters] = useState<string[]>([]);
     const [fieldFilters, setFieldFilters] = useState<Record<string, string[]>>(
         Object.fromEntries(filterFields.map((f) => [f.key, []]))
     );
@@ -143,12 +75,17 @@ export default function Analytics() {
         Object.fromEntries(
             filterFields
                 .map((f) => [f.key, false] as const)
-                .concat([["date_range", false] as const])
+                .concat([
+                    ["date_range", false] as const,
+                    ["type", false] as const,
+                    ["datasets", false] as const,
+                ])
         )
     );
 
     const clearAll = () => {
         setQuery("");
+        setFilters([]);
         setFieldFilters(Object.fromEntries(filterFields.map((f) => [f.key, []])));
         setDateFrom(null);
         setDateTo(null);
@@ -160,7 +97,11 @@ export default function Analytics() {
             Object.fromEntries(
                 filterFields
                     .map((f) => [f.key, true] as const)
-                    .concat([["date_range", true] as const])
+                    .concat([
+                        ["date_range", true] as const,
+                        ["type", true] as const,
+                        ["datasets", true] as const,
+                    ])
             )
         );
     };
@@ -170,30 +111,22 @@ export default function Analytics() {
             Object.fromEntries(
                 filterFields
                     .map((f) => [f.key, false] as const)
-                    .concat([["date_range", false] as const])
+                    .concat([
+                        ["date_range", false] as const,
+                        ["type", false] as const,
+                        ["datasets", false] as const,
+                    ])
             )
         );
     };
 
-    const handleLogsProcessed = (processedLogs: Log[]) => {
-        setLogs(processedLogs);
-        setDisplayedLogs(processedLogs.slice(0, logsToShow));
-        setSelectedLog(null);
-    };
-
-    const handleUploadStart = () => {
-        setUploading(true);
-        setUploadProgress(0);
-        setLogs([]);
-        setDisplayedLogs([]);
-        setSelectedLog(null);
-    };
-    const handleUploadProgress = (progress: number) => setUploadProgress(progress);
-    const handleUploadComplete = () => setUploading(false);
-
     const loadMoreLogs = () => setLogsToShow((prev) => prev + 500);
 
-    // Removed: Type filtering logic previously here.
+    const toggleTypeFilter = (type: string) => {
+        setFilters((prev) =>
+            prev.includes(type) ? prev.filter((f) => f !== type) : [...prev, type]
+        );
+    };
 
     const toggleFieldFilter = (field: string, value: string) => {
         setFieldFilters((prev) => {
@@ -205,6 +138,38 @@ export default function Analytics() {
         });
     };
 
+    const formatEventType = (evtRaw: string): string => {
+        if (!evtRaw) return "";
+        // Take last segment after dot if dotted (e.g., http.forbidden -> forbidden)
+        // If comma separated, take last non-empty trimmed part.
+        const cleaned = evtRaw.trim();
+        const commaParts = cleaned
+            .split(",")
+            .map((p) => p.trim())
+            .filter(Boolean);
+        const lastComma = commaParts.length ? commaParts[commaParts.length - 1] : cleaned;
+        const dotParts = lastComma.split(".").filter(Boolean);
+        const core = dotParts.length ? dotParts[dotParts.length - 1] : lastComma;
+        // Replace underscores with space and title-case each word.
+        return core
+            .replace(/_/g, " ")
+            .split(/\s+/)
+            .map((w) => (w.length ? w[0].toUpperCase() + w.slice(1) : w))
+            .join(" ");
+    };
+
+    const getDisplayName = (log: Record<string, unknown> | undefined): string => {
+        const record = log as Record<string, unknown>;
+        const app = (record.app ?? record.appDisplayName ?? "").toString();
+        const evtRaw = (record.evt_type ?? record.event_type ?? record.eventtype ?? "").toString();
+        const evtDisplay = formatEventType(evtRaw);
+        if (app && evtDisplay) return app + " " + evtDisplay;
+        if (app) return app;
+        if (evtDisplay) return evtDisplay;
+        // fallback to id then message
+        return (record.message ?? record.id ?? "").toString();
+    };
+
     const loadMoreFilterOptions = (field: string) => {
         setLoadedFilterOptions((prev) => ({
             ...prev,
@@ -212,18 +177,7 @@ export default function Analytics() {
         }));
     };
 
-    const uniqueValues = (field: string) =>
-        Array.from(new Set(logs.map((l) => getLogField(l, field)).filter((s) => s.length > 0)));
-
-    const parseSQLQuery = (q: string): Record<string, string> => {
-        const out: Record<string, string> = {};
-        const regex = /(\w+)\s*=\s*['"]([^'"]+)['"]/g;
-        let m: RegExpExecArray | null;
-        while ((m = regex.exec(q)) !== null) {
-            out[m[1]] = m[2];
-        }
-        return out;
-    };
+    const uniqueValues = (field: string) => uniqueFieldValues(logs, field);
 
     const filteredLogs = useMemo(() => {
         const sqlFilters = parseSQLQuery(query);
@@ -235,6 +189,7 @@ export default function Analytics() {
                 }
                 return true;
             })
+            .filter((log) => (filters.length ? filters.includes(log.type) : true))
             .filter((log) => {
                 if (dateFrom || dateTo) {
                     const tsRaw = getLogTimestamp(log);
@@ -276,13 +231,21 @@ export default function Analytics() {
         });
 
         return sorted;
-    }, [logs, query, fieldFilters, dateFrom, dateTo, sortOption]);
+    }, [logs, query, filters, fieldFilters, dateFrom, dateTo, sortOption]);
+
+    useEffect(() => {
+        const nextLogs: Log[] = [];
+        selectedDatasets.forEach((dataset) => {
+            const fromDataset = parseLogsFromContent(dataset.content ?? null);
+            nextLogs.push(...fromDataset);
+        });
+        setLogs(nextLogs);
+    }, [selectedDatasets]);
 
     useEffect(() => {
         setDisplayedLogs(filteredLogs.slice(0, logsToShow));
     }, [filteredLogs, logsToShow]);
 
-    // sidebar vertical resize
     useEffect(() => {
         const onMove = (e: MouseEvent) => {
             if (!isResizingSidebar || sidebarCollapsed) return;
@@ -300,7 +263,6 @@ export default function Analytics() {
         };
     }, [isResizingSidebar, sidebarCollapsed]);
 
-    // filters/logs horizontal resize
     useEffect(() => {
         const onMove = (e: MouseEvent) => {
             if (!isResizingFilters || !sidebarRef.current) return;
@@ -320,7 +282,6 @@ export default function Analytics() {
         };
     }, [isResizingFilters]);
 
-    // esc to deselect
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (e.key === "Escape") setSelectedLog(null);
@@ -344,14 +305,12 @@ export default function Analytics() {
         setLogListCollapsed((prev) => {
             const next = !prev;
             if (next) {
-                // collapsing
                 savedLogSplitRef.current = filtersHeight;
                 if (sidebarRef.current) {
                     const h = sidebarRef.current.getBoundingClientRect().height;
                     setFiltersHeight(h - TITLE_H);
                 }
             } else {
-                // reopening
                 const restored = savedLogSplitRef.current;
                 setFiltersHeight(() => {
                     const min = TITLE_H + 10;
@@ -366,7 +325,6 @@ export default function Analytics() {
 
     const resizing = isResizingSidebar || isResizingFilters;
 
-    // build filter chips
     const chips: Array<{ id: string; label: string; onRemove: () => void }> = [];
     for (const ff of filterFields) {
         const selectedVals = fieldFilters[ff.key] || [];
@@ -388,7 +346,13 @@ export default function Analytics() {
             },
         });
     }
-    // Removed Type chips generation.
+    filters.forEach((t) => {
+        chips.push({
+            id: `type:${t}`,
+            label: `Type: ${t}`,
+            onRemove: () => toggleTypeFilter(t),
+        });
+    });
     if (query.trim() !== "") {
         chips.push({
             id: "query",
@@ -397,14 +361,23 @@ export default function Analytics() {
         });
     }
 
+    const toggleDataset = (dataset: DatasetItem) => {
+        setSelectedDatasets((prev) => {
+            const exists = prev.some((d) => d.id === dataset.id);
+            if (exists) {
+                return prev.filter((d) => d.id !== dataset.id);
+            }
+            return [...prev, dataset];
+        });
+    };
+
+    const clearDatasets = () => {
+        setSelectedDatasets([]);
+    };
+
     return (
-        <div className="h-full flex flex-col">
-            <div className="fixed top-[61px] inset-x-0 bg-neutral-900 z-10">
-                <AnalyticsHeader />
-            </div>
-            <div className="flex-1 bg-black pt-10">
-                <div className="fixed inset-x-0 top-24 bottom-0 bg-black text-white flex overflow-hidden">
-                    {resizing && (
+        <div className="fixed inset-x-0 top-[64px] bottom-0 bg-black text-white flex overflow-hidden z-10">
+            {resizing && (
                 <div
                     className={`fixed inset-0 z-[9999] bg-transparent ${
                         isResizingSidebar ? "cursor-col-resize" : "cursor-row-resize"
@@ -415,10 +388,9 @@ export default function Analytics() {
             {!sidebarCollapsed && (
                 <div
                     ref={sidebarRef}
-                    className="relative h-full min-h-0 bg-neutral-900 border-r border-neutral-700 flex flex-col transition-all duration-150 pr-[6px]"
+                    className="relative h-full bg-neutral-900 border-r border-neutral-700 flex flex-col transition-all duration-150 pr-[6px]"
                     style={{ width: sidebarWidth }}
                 >
-                    {/* FILTERS SECTION */}
                     {!filtersCollapsed ? (
                         <div
                             className="flex flex-col"
@@ -457,31 +429,97 @@ export default function Analytics() {
                                 </div>
                             </div>
 
-                            <FilterPanel
-                                query={query}
-                                onQueryChange={setQuery}
-                                sortOption={sortOption}
-                                onSortChange={setSortOption}
-                                onClearAll={clearAll}
-                                onCollapseAll={collapseAllFilterSections}
-                                filterFields={filterFields}
-                                collapsedSections={collapsedFilterSections}
-                                toggleSection={(key) =>
-                                    setCollapsedFilterSections((prev) => ({
-                                        ...prev,
-                                        [key]: !prev[key],
-                                    }))
-                                }
-                                uniqueValues={uniqueValues}
-                                fieldFilters={fieldFilters}
-                                toggleFieldValue={toggleFieldFilter}
-                                dateFrom={dateFrom}
-                                dateTo={dateTo}
-                                onDateFromChange={setDateFrom}
-                                onDateToChange={setDateTo}
-                                loadedFilterOptions={loadedFilterOptions}
-                                loadMoreFilterOptions={loadMoreFilterOptions}
-                            />
+                            <div className="flex-1 overflow-hidden flex flex-col">
+                                <div className="px-3 pt-2 pb-1">
+                                    <div className="bg-neutral-800 border border-neutral-700 rounded-lg">
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setCollapsedFilterSections((prev) => ({
+                                                    ...prev,
+                                                    datasets: !prev.datasets,
+                                                }))
+                                            }
+                                            className="flex items-center justify-between w-full bg-black text-yellow-400 rounded-t-lg px-2 py-1"
+                                        >
+                                            <span className="text-sm font-semibold">Datasets</span>
+                                            {collapsedFilterSections.datasets ? (
+                                                <ChevronDown className="w-4 h-4" />
+                                            ) : (
+                                                <ChevronUp className="w-4 h-4" />
+                                            )}
+                                        </button>
+                                        {!collapsedFilterSections.datasets && (
+                                            <div className="p-2 flex flex-col gap-2 text-sm max-h-40 overflow-y-auto">
+                                                {datasets.length === 0 ? (
+                                                    <span className="text-xs text-neutral-400">
+                                                        No datasets.
+                                                    </span>
+                                                ) : (
+                                                    datasets.map((ds) => {
+                                                        const selected = selectedDatasets.some(
+                                                            (d) => d.id === ds.id
+                                                        );
+                                                        return (
+                                                            <label
+                                                                key={ds.id}
+                                                                className="flex items-center gap-2"
+                                                            >
+                                                                <Checkbox
+                                                                    checked={selected}
+                                                                    onCheckedChange={() =>
+                                                                        toggleDataset(ds)
+                                                                    }
+                                                                />
+                                                                <span>{getDatasetLabel(ds)}</span>
+                                                            </label>
+                                                        );
+                                                    })
+                                                )}
+                                                {selectedDatasets.length > 0 && (
+                                                    <div className="pt-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={clearDatasets}
+                                                            className="text-[11px] text-yellow-400 hover:underline"
+                                                        >
+                                                            Clear selection
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <FilterPanel
+                                    query={query}
+                                    onQueryChange={setQuery}
+                                    sortOption={sortOption}
+                                    onSortChange={setSortOption}
+                                    onClearAll={clearAll}
+                                    onCollapseAll={collapseAllFilterSections}
+                                    filterFields={filterFields}
+                                    collapsedSections={collapsedFilterSections}
+                                    toggleSection={(key) =>
+                                        setCollapsedFilterSections((prev) => ({
+                                            ...prev,
+                                            [key]: !prev[key],
+                                        }))
+                                    }
+                                    uniqueValues={uniqueValues}
+                                    fieldFilters={fieldFilters}
+                                    toggleFieldValue={toggleFieldFilter}
+                                    dateFrom={dateFrom}
+                                    dateTo={dateTo}
+                                    onDateFromChange={setDateFrom}
+                                    onDateToChange={setDateTo}
+                                    typeFilters={filters}
+                                    toggleTypeFilter={toggleTypeFilter}
+                                    loadedFilterOptions={loadedFilterOptions}
+                                    loadMoreFilterOptions={loadMoreFilterOptions}
+                                />
+                            </div>
                         </div>
                     ) : (
                         <div className="flex items-center justify-between h-[30px] px-3 bg-neutral-900/95 border-b border-neutral-700">
@@ -496,7 +534,6 @@ export default function Analytics() {
                         </div>
                     )}
 
-                    {/* horizontal resizer */}
                     {!filtersCollapsed && !logListCollapsed && (
                         <div
                             onMouseDown={() => setIsResizingFilters(true)}
@@ -504,12 +541,11 @@ export default function Analytics() {
                             style={{
                                 top: filtersHeight - 2,
                                 height: 6,
-                                width: "calc(100% - 8px)", // leave room for scrollbar
+                                width: "calc(100% - 8px)",
                             }}
                         />
                     )}
 
-                    {/* LOGS SECTION */}
                     {!logListCollapsed ? (
                         <div className="flex-1 min-h-0 flex flex-col">
                             <div className="flex items-center justify-between h-[30px] px-3 bg-neutral-900/95 border-b border-neutral-700 sticky top-0 z-10">
@@ -538,13 +574,13 @@ export default function Analytics() {
                                                         prev?.id === log.id ? null : log
                                                     )
                                                 }
-                                                className={`p-2 rounded border cursor-pointer ${
+                                                className={`p-2 rounded border overflow-hidden cursor-pointer ${
                                                     isSelected
                                                         ? "bg-yellow-400 text-black border-yellow-300"
                                                         : "bg-neutral-800 border-neutral-700 hover:bg-neutral-700"
                                                 }`}
                                             >
-                                                {getDisplayName(log)}
+                                                {getDisplayName(log.raw)}
                                             </div>
                                         );
                                     })
@@ -572,7 +608,6 @@ export default function Analytics() {
                         </div>
                     )}
 
-                    {/* vertical resizer with padding so it doesn't cover scroll bars */}
                     <div
                         onMouseDown={() => setIsResizingSidebar(true)}
                         className="absolute top-0 right-[-3px] h-full w-[6px] bg-neutral-800/80 hover:bg-yellow-400/70 cursor-col-resize z-40"
@@ -580,7 +615,6 @@ export default function Analytics() {
                 </div>
             )}
 
-            {/* RIGHT SIDE */}
             <div className="flex-1 min-h-0 flex flex-col bg-black">
                 <div className="px-4 py-2 text-sm text-neutral-400 flex items-center gap-3 border-b border-neutral-800">
                     <button
@@ -626,28 +660,17 @@ export default function Analytics() {
                 {logs.length === 0 ? (
                     <div className="flex-1 min-h-0 flex items-center justify-center">
                         <div className="w-full max-w-md">
-                            <LogUploader
-                                onLogsProcessed={handleLogsProcessed}
-                                uploading={uploading}
-                                uploadProgress={uploadProgress}
-                                onUploadStart={handleUploadStart}
-                                onUploadProgress={handleUploadProgress}
-                                onUploadComplete={handleUploadComplete}
-                            />
+                            <p>
+                                Please SYNC with the server using the <strong>Sync</strong> button
+                                in the header.
+                            </p>
                         </div>
                     </div>
                 ) : (
                     <div className="flex-1 min-h-0 m-4 bg-neutral-900 border border-neutral-700 rounded-lg p-4 overflow-auto">
                         {selectedLog ? (
                             <pre className="text-xs font-mono whitespace-pre-wrap break-all text-neutral-100">
-                                {(() => {
-                                    const raw = (selectedLog as any).raw;
-                                    if (raw && typeof raw === 'object') {
-                                        return JSON.stringify(raw, null, 2);
-                                    }
-                                    // If no raw, provide minimal notice instead of whole log per requirement.
-                                    return '// No raw field present on this log';
-                                })()}
+                                {JSON.stringify(selectedLog.raw, null, 2)}
                             </pre>
                         ) : (
                             <div className="text-sm text-neutral-400">
@@ -656,9 +679,7 @@ export default function Analytics() {
                         )}
                     </div>
                 )}
-                </div>
             </div>
         </div>
-    </div>
     );
 }
