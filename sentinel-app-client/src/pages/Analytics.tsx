@@ -1,6 +1,7 @@
 // src/pages/Analytics.tsx
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "../components/ui/button";
+import AnalyticsHeader from "../components/AnalyticsHeader";
 import { DatasetItem, Log } from "../types/types";
 import {
     ChevronsLeft,
@@ -12,12 +13,17 @@ import {
     ChevronUp,
 } from "lucide-react";
 import FilterPanel, { FilterField } from "../components/FilterPanel";
-import { useDatasets } from "@/store/datasetStore";
+import {
+    useDatasets,
+    useSelectedDatasetIds,
+    useSelectedDatasets,
+    useSelectedLogs,
+    useDatasetStore,
+} from "@/store/datasetStore";
 import { Checkbox } from "../components/ui/checkbox";
 import {
     getLogField,
     getLogTimestamp,
-    parseLogsFromContent,
     parseSQLQuery,
     uniqueFieldValues,
     getDatasetLabel,
@@ -54,8 +60,9 @@ export default function Analytics() {
     const sidebarRef = useRef<HTMLDivElement | null>(null);
     const savedLogSplitRef = useRef<number>(DEFAULT_FILTERS_HEIGHT);
 
-    const [selectedDatasets, setSelectedDatasets] = useState<DatasetItem[]>([]);
-    const [logs, setLogs] = useState<Log[]>([]);
+    const selectedDatasetIds = useSelectedDatasetIds();
+    const selectedDatasets = useSelectedDatasets();
+    const logs = useSelectedLogs();
     const [displayedLogs, setDisplayedLogs] = useState<Log[]>([]);
     const [query, setQuery] = useState("");
     const [filters, setFilters] = useState<string[]>([]);
@@ -233,14 +240,7 @@ export default function Analytics() {
         return sorted;
     }, [logs, query, filters, fieldFilters, dateFrom, dateTo, sortOption]);
 
-    useEffect(() => {
-        const nextLogs: Log[] = [];
-        selectedDatasets.forEach((dataset) => {
-            const fromDataset = parseLogsFromContent(dataset.content ?? null);
-            nextLogs.push(...fromDataset);
-        });
-        setLogs(nextLogs);
-    }, [selectedDatasets]);
+    // logs are provided by store; no local parsing effect needed
 
     useEffect(() => {
         setDisplayedLogs(filteredLogs.slice(0, logsToShow));
@@ -362,21 +362,24 @@ export default function Analytics() {
     }
 
     const toggleDataset = (dataset: DatasetItem) => {
-        setSelectedDatasets((prev) => {
-            const exists = prev.some((d) => d.id === dataset.id);
-            if (exists) {
-                return prev.filter((d) => d.id !== dataset.id);
-            }
-            return [...prev, dataset];
-        });
+        const toggle = useDatasetStore.getState().toggleDatasetSelection;
+        toggle(dataset.id);
     };
 
     const clearDatasets = () => {
-        setSelectedDatasets([]);
+        const clearSel = useDatasetStore.getState().clearSelectedDatasetIds;
+        clearSel();
     };
 
     return (
-        <div className="fixed inset-x-0 top-[64px] bottom-0 bg-black text-white flex overflow-hidden z-10">
+        <>
+            {/* Sub-navigation header for Logs/Graphs */}
+            <div className="fixed top-[61.5px] inset-x-0 bg-neutral-900 z-10">
+                <AnalyticsHeader />
+            </div>
+
+            {/* Page body under the sub-header */}
+            <div className="fixed inset-x-0 top-[96px] bottom-0 bg-black text-white flex overflow-hidden z-0">
             {resizing && (
                 <div
                     className={`fixed inset-0 z-[9999] bg-transparent ${
@@ -678,6 +681,7 @@ export default function Analytics() {
                     </div>
                 )}
             </div>
-        </div>
+            </div>
+        </>
     );
 }

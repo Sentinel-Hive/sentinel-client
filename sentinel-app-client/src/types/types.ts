@@ -2,6 +2,9 @@ export type Log = {
     id: string;
     message: string;
     type: string;
+    // Dataset origin (set by store when logs are parsed from a dataset)
+    datasetId?: number;
+    datasetName?: string;
     src_ip?: string;
     dest_ip?: string;
     user?: string;

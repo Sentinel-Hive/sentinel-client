@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import * as d3 from 'd3';
 import { Log, NodeData, LinkData, RelationshipTypes } from '../../types/types';
+import { getLogField } from '@/lib/utils';
 
 type SimulationNode = d3.SimulationNodeDatum & NodeData;
 type SimulationLink = d3.SimulationLinkDatum<SimulationNode> & LinkData;
@@ -21,6 +22,11 @@ interface ObsidianGraphProps {
   colors: { [key: string]: string };
   shapes: { [key: string]: string };
   colorCriteria?: 'event_type' | 'severity' | 'app_type' | 'src_ip' | 'dest_ip';
+  // Physics controls
+  centerStrength?: number; // strength for x/y centering forces
+  repelStrength?: number; // many-body negative strength
+  linkStrength?: number;  // link force strength [0..1]
+  linkDistance?: number;  // link preferred distance in px
   onNodeClick?: (node: NodeData) => void;
   onLinkClick?: (link: LinkData) => void;
 }
@@ -31,6 +37,10 @@ const ObsidianGraph = ({
   colors,
   shapes,
   colorCriteria = 'event_type',
+  centerStrength = 0.05,
+  repelStrength = -100,
+  linkStrength = 1,
+  linkDistance = 30,
   onNodeClick,
   onLinkClick,
 }: ObsidianGraphProps) => {
@@ -38,12 +48,40 @@ const ObsidianGraph = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+  const dimsRef = useRef({ width: 800, height: 600 });
   const [nodes, setNodes] = useState<NodeData[]>([]);
   const [links, setLinks] = useState<LinkData[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
   const [simulation, setSimulation] = useState<Simulation | null>(null);
   const [isReady, setIsReady] = useState(false);
+
+  // Helper: read the value for the selected color criteria from a Log, with fallbacks
+  const getCriteriaValue = (log: Log): string => {
+    // Map UI criteria to actual Log fields used by our parser
+    const field = colorCriteria === 'app_type' ? 'app' : colorCriteria;
+    let value = getLogField(log, field);
+    // Fallbacks for older or raw shapes
+    if (!value) {
+      if (field === 'event_type') {
+        value = log.event_type || log.type || '';
+      } else if (field === 'src_ip') {
+        value = log.src_ip || log.ipAddress || '';
+      } else if (field === 'dest_ip') {
+        value = log.dest_ip || (log as any).dest || '';
+      } else if (field === 'app') {
+        value = log.app || log.appDisplayName || (log as any).resourceDisplayName || '';
+      }
+      // As a last resort, try raw field if present
+      if (!value && log.raw && typeof log.raw[field] !== 'undefined') {
+        const rawVal = log.raw[field];
+        if (typeof rawVal === 'string' || typeof rawVal === 'number' || typeof rawVal === 'boolean') {
+          value = String(rawVal);
+        }
+      }
+    }
+    return value || '';
+  };
 
   // Measure once at mount
   useEffect(() => {
@@ -56,30 +94,42 @@ const ObsidianGraph = ({
     });
   }, []);
 
+  // Keep a live ref of dimensions for use in simulation tick
+  useEffect(() => {
+    dimsRef.current = dimensions;
+  }, [dimensions]);
+
   // Keep the simulation centered after container resizes
   useEffect(() => {
     if (!simulation) return;
     const { width, height } = dimensions;
     simulation
       .force('center', d3.forceCenter<SimulationNode>(width / 2, height / 2))
-      .force('x', d3.forceX<SimulationNode>(width / 2).strength(0.05))
-      .force('y', d3.forceY<SimulationNode>(height / 2).strength(0.05));
+      .force('x', d3.forceX<SimulationNode>(width / 2).strength(centerStrength))
+      .force('y', d3.forceY<SimulationNode>(height / 2).strength(centerStrength));
     simulation.alpha(0.2).restart();
-  }, [dimensions.width, dimensions.height, simulation]);
+  }, [dimensions.width, dimensions.height, simulation, centerStrength]);
 
-  // Resize handler
+  // Also update the SVG's width/height attributes to the latest dimensions
   useEffect(() => {
-    const handleResize = () => {
-      const el = svgRef.current;
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      setDimensions({
-        width: r.width || 800,
-        height: r.height || 600,
-      });
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    const el = svgRef.current;
+    if (!el) return;
+    el.setAttribute('width', String(dimensions.width));
+    el.setAttribute('height', String(dimensions.height));
+  }, [dimensions.width, dimensions.height]);
+
+  // Observe container size changes (both width and height) to react to sidebar and vertical resizes
+  useEffect(() => {
+    const target = containerRef.current;
+    if (!target) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const cr = entry.contentRect;
+        setDimensions({ width: cr.width || 800, height: cr.height || 600 });
+      }
+    });
+    ro.observe(target);
+    return () => ro.disconnect();
   }, []);
 
   // Build nodes (one per log) + links (based on selected relationship rule)
@@ -99,7 +149,8 @@ const ObsidianGraph = ({
           (log.app || log.appDisplayName || '') && (log.event_type || (log as any).evt_type)
             ? `${log.app || log.appDisplayName} ${(log.event_type || (log as any).evt_type) as string}`
             : (log.message || log.id || `log-${idx}`),
-        dataset: log.type || 'unknown',
+        // Use dataset id string as the grouping key for shapes; fallback to name or 'unknown'
+        dataset: String(log.datasetId ?? log.datasetName ?? 'unknown'),
         details: log,
       }));
 
@@ -298,11 +349,18 @@ useLayoutEffect(() => {
 
       const newSimulation = d3
         .forceSimulation<SimulationNode>(nodes)
-        .force('link', d3.forceLink<SimulationNode, SimulationLink>(links).id((d) => d.id))
-        .force('charge', d3.forceManyBody<SimulationNode>().strength(-100))
+        .force(
+          'link',
+          d3
+            .forceLink<SimulationNode, SimulationLink>(links)
+            .id((d) => d.id)
+            .distance(linkDistance)
+            .strength(linkStrength)
+        )
+        .force('charge', d3.forceManyBody<SimulationNode>().strength(repelStrength))
         .force('collide', d3.forceCollide<SimulationNode>().radius((d: any) => ((d.isStarCenter ? centerRadius : baseRadius) * 1.5)).iterations(1))
-        .force('x', d3.forceX<SimulationNode>(width / 2).strength(0.05))
-        .force('y', d3.forceY<SimulationNode>(height / 2).strength(0.05))
+        .force('x', d3.forceX<SimulationNode>(width / 2).strength(centerStrength))
+        .force('y', d3.forceY<SimulationNode>(height / 2).strength(centerStrength))
         .force('center', d3.forceCenter<SimulationNode>(width / 2, height / 2)) as Simulation;
 
       setSimulation(newSimulation);
@@ -386,21 +444,9 @@ useLayoutEffect(() => {
           shapes[d.dataset] ?? shapes['default'] ?? shapes['Default'] ?? 'circle';
         const element = d3.select(this);
         const r = d.isStarCenter ? centerRadius : baseRadius;
-        // Compute color key based on selected criteria
-        let colorKey: string | undefined;
-        const det = d.details || {};
-        switch (colorCriteria) {
-          case 'severity':
-            colorKey = det.severity; break;
-          case 'app_type':
-            colorKey = det.app || det.appDisplayName || det.resourceDisplayName; break;
-          case 'src_ip':
-            colorKey = det.src_ip || det.ipAddress; break;
-          case 'dest_ip':
-            colorKey = det.dest_ip || det.dest; break;
-          default:
-            colorKey = det.event_type || det.evt_type || det.eventtype || d.type || d.dataset; break;
-        }
+        // Compute color key based on selected criteria using robust parser
+        const det = (d.details || {}) as Log;
+        const colorKey = getCriteriaValue(det);
         const nodeColor = (colorKey && colors[colorKey]) || '#999';
 
         switch (shape) {
@@ -504,13 +550,14 @@ useLayoutEffect(() => {
           onNodeClick?.(d);
         });
 
-      newSimulation.on('tick', () => {
+      newSimulation.on("tick", () => {
         // Keep nodes inside the viewport bounds
+        const { width: curW, height: curH } = dimsRef.current;
         nodes.forEach((nd: any) => {
           if (nd.x == null || nd.y == null) return;
           const rr = nd.isStarCenter ? centerRadius : baseRadius;
-          nd.x = Math.max(rr, Math.min(width - rr, nd.x));
-          nd.y = Math.max(rr, Math.min(height - rr, nd.y));
+          nd.x = Math.max(rr, Math.min(curW - rr, nd.x));
+          nd.y = Math.max(rr, Math.min(curH - rr, nd.y));
         });
 
         link
@@ -547,6 +594,27 @@ useLayoutEffect(() => {
   // Only re-run when "ready" state flips or counts of nodes/links change
 }, [isReady, nodes.length, links.length]);
 
+  // Apply force parameter updates without tearing down the simulation
+  useEffect(() => {
+    if (!isReady || !simulation) return;
+    // Update link force
+    const linkF = simulation.force('link') as d3.ForceLink<SimulationNode, SimulationLink> | undefined;
+    if (linkF) {
+      linkF.distance(linkDistance).strength(linkStrength);
+    }
+    // Update repel force
+    const chargeF = simulation.force('charge') as d3.ForceManyBody<SimulationNode> | undefined;
+    if (chargeF) {
+      chargeF.strength(repelStrength);
+    }
+    // Update x/y centering forces
+    const xF = simulation.force('x') as d3.ForceX<SimulationNode> | undefined;
+    const yF = simulation.force('y') as d3.ForceY<SimulationNode> | undefined;
+    if (xF) xF.strength(centerStrength);
+    if (yF) yF.strength(centerStrength);
+    simulation.alpha(0.3).restart();
+  }, [isReady, simulation, centerStrength, repelStrength, linkStrength, linkDistance]);
+
   // Dynamic color update without tearing down simulation
   useEffect(() => {
     if (!isReady || nodes.length === 0) return;
@@ -554,15 +622,8 @@ useLayoutEffect(() => {
     if (!el) return;
     const svg = d3.select(el);
     svg.selectAll('g.nodes > g').each(function (d: any) {
-      let colorKey: string | undefined;
-      const det = d.details || {};
-      switch (colorCriteria) {
-        case 'severity': colorKey = det.severity; break;
-        case 'app_type': colorKey = det.app || det.appDisplayName || det.resourceDisplayName; break;
-        case 'src_ip': colorKey = det.src_ip || det.ipAddress; break;
-        case 'dest_ip': colorKey = det.dest_ip || det.dest; break;
-        default: colorKey = det.event_type || det.evt_type || det.eventtype || d.type || d.dataset; break;
-      }
+      const det = (d.details || {}) as Log;
+      const colorKey = getCriteriaValue(det);
       const nodeColor = (colorKey && colors[colorKey]) || '#999';
       d3.select(this).select('circle').attr('fill', nodeColor);
       d3.select(this).select('rect').attr('fill', nodeColor);
@@ -607,15 +668,15 @@ useLayoutEffect(() => {
   // ---------- Render ----------
   if (!logs || logs.length === 0) {
     return (
-      <div className="w-full h-full flex items-center justify-center text-neutral-400 min-h-[480px]">
-        Upload a dataset file to visualize relationships
+      <div className="w-full h-full flex items-center justify-center text-neutral-400 min-h-0">
+        Select datasets on the Analytics page to visualize relationships
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="w-full h-full flex items-center justify-center text-red-400 min-h-[480px]">
+      <div className="w-full h-full flex items-center justify-center text-red-400 min-h-0">
         {error}
       </div>
     );
@@ -623,7 +684,7 @@ useLayoutEffect(() => {
 
   if (nodes.length === 0 && logs.length > 0) {
     return (
-      <div className="w-full h-full flex items-center justify-center text-neutral-400 min-h-[480px]">
+      <div className="w-full h-full flex items-center justify-center text-neutral-400 min-h-0">
         Processing {logs.length} logs...
       </div>
     );
@@ -633,7 +694,7 @@ useLayoutEffect(() => {
 
   // 3) Make sure the container has a real height (so layout never measures 0x0)
 return (
-  <div ref={containerRef} className="w-full h-full relative min-h-[480px]">
+  <div ref={containerRef} className="w-full h-full relative min-h-0">
     <div className="w-full h-full">
       <svg ref={svgRef} className="w-full h-full bg-neutral-900" />
     </div>

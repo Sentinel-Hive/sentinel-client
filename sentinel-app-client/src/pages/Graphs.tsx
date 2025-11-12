@@ -1,13 +1,11 @@
-import { useState, useEffect, useRef, useMemo } from "react";
-import AnalyticsHeader from "../components/AnalyticsHeader";
+import { useState, useEffect, useMemo } from "react";
 import ColorPicker, { EventColor, ColorCriteria } from "../components/LogGraph/ColorPicker";
-import DatasetPicker from "../components/LogGraph/DatasetPicker";
 import ObsidianGraph from "../components/LogGraph/ObsidianGraph";
 import GraphControls from "../components/LogGraph/GraphControls";
-import LogUploader from "../components/LogGraph/LogUploader";
-import { ChevronsLeft, ChevronsRight, PanelTopClose } from "lucide-react";
-import { Progress } from "../components/ui/progress";
+import AnalyticsHeader from "../components/AnalyticsHeader";
+import { ChevronsLeft, ChevronsRight } from "lucide-react";
 import { RelationshipTypes } from "../types/types";
+import { useSelectedLogs, useSelectedDatasets } from "@/store/datasetStore";
 
 interface GraphOption {
   id: string;
@@ -23,21 +21,27 @@ const defaultGraphOptions: GraphOption[] = [
 ];
 
 const DEFAULT_SIDEBAR_WIDTH = 300; // Match analytics page width
+const MIN_SIDEBAR_WIDTH = 275; // Prevent panel from getting too small
+const MIN_GRAPH_WIDTH = 480;   // Always leave room for the graph
+const MAX_SIDEBAR_FRACTION = 0.3; // Cap sidebar at 50% of viewport
 
 const Graphs = () => {
   const [eventColors, setEventColors] = useState<EventColor[]>([]);
   const [colorCriteria, setColorCriteria] = useState<ColorCriteria>('event_type');
   const [selectedRelationship, setSelectedRelationship] = useState(RelationshipTypes.IP_CONNECTION);
-  const [currentDataset, setCurrentDataset] = useState<string | null>(null);
-  const [logs, setLogs] = useState<any[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const logs = useSelectedLogs();
+  const selectedDatasets = useSelectedDatasets();
   
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [graphOptions, setGraphOptions] = useState<GraphOption[]>(defaultGraphOptions);
   const [isResizingGraph, setIsResizingGraph] = useState<string | null>(null);
+  // Physics controls
+  const [centerStrength, setCenterStrength] = useState(0.05);
+  const [repelStrength, setRepelStrength] = useState(-100);
+  const [linkStrength, setLinkStrength] = useState(1);
+  const [linkDistance, setLinkDistance] = useState(30);
   
   const handleColorChange = (eventType: string, color: string) => {
     setEventColors(colors =>
@@ -96,9 +100,11 @@ const Graphs = () => {
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!isResizingSidebar || sidebarCollapsed) return;
-      const min = 220; // Match analytics page minimum width
-      const max = window.innerWidth - 100;
-      const w = Math.min(Math.max(e.clientX, min), max);
+      // Compute dynamic max: leave at least MIN_GRAPH_WIDTH for graph and cap by fraction
+      const maxByMinGraph = window.innerWidth - MIN_GRAPH_WIDTH;
+      const maxByFraction = Math.floor(window.innerWidth * MAX_SIDEBAR_FRACTION);
+      const max = Math.max(MIN_SIDEBAR_WIDTH, Math.min(maxByMinGraph, maxByFraction));
+      const w = Math.min(Math.max(e.clientX, MIN_SIDEBAR_WIDTH), max);
       setSidebarWidth(w);
     };
     const onUp = () => setIsResizingSidebar(false);
@@ -110,6 +116,22 @@ const Graphs = () => {
       window.removeEventListener("mouseup", onUp);
     };
   }, [isResizingSidebar, sidebarCollapsed]);
+
+  // Keep sidebar width within constraints on window resize or collapse toggle
+  useEffect(() => {
+    const clampSidebar = () => {
+      const maxByMinGraph = window.innerWidth - MIN_GRAPH_WIDTH;
+      const maxByFraction = Math.floor(window.innerWidth * MAX_SIDEBAR_FRACTION);
+      const max = Math.max(MIN_SIDEBAR_WIDTH, Math.min(maxByMinGraph, maxByFraction));
+      setSidebarWidth((prev) => {
+        const next = Math.min(Math.max(prev, MIN_SIDEBAR_WIDTH), max);
+        return sidebarCollapsed ? prev : next;
+      });
+    };
+    clampSidebar();
+    window.addEventListener('resize', clampSidebar);
+    return () => window.removeEventListener('resize', clampSidebar);
+  }, [sidebarCollapsed]);
 
   // Graph height resize handler
   useEffect(() => {
@@ -157,13 +179,85 @@ const Graphs = () => {
   // Compute once to control layout behavior
   const enabledCount = graphOptions.filter(g => g.enabled).length;
 
+  // Build a consistent shapes mapping keyed by dataset id string
+  const shapeOptions = ['circle','square','triangle','diamond','pentagon'];
+  const datasetShapes = Object.fromEntries(
+    selectedDatasets.map((ds, i) => [String(ds.id), shapeOptions[i % shapeOptions.length]])
+  );
+
+  // Inline shape mark for dataset legend
+  const ShapeMark = ({ shape }: { shape?: string }) => {
+    const s = shape || 'circle';
+    const size = 14;
+    const half = size / 2;
+    const r = 6;
+    if (s === 'square') {
+      return (
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="text-yellow-400">
+          <rect x={half - r} y={half - r} width={r * 2} height={r * 2} fill="currentColor" />
+        </svg>
+      );
+    }
+    if (s === 'triangle') {
+      const points = [
+        [half, half - r],
+        [half - r, half + r],
+        [half + r, half + r],
+      ]
+        .map((p) => p.join(","))
+        .join(" ");
+      return (
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="text-yellow-400">
+          <polygon points={points} fill="currentColor" />
+        </svg>
+      );
+    }
+    if (s === 'diamond') {
+      const points = [
+        [half, half - r],
+        [half - r, half],
+        [half, half + r],
+        [half + r, half],
+      ]
+        .map((p) => p.join(","))
+        .join(" ");
+      return (
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="text-yellow-400">
+          <polygon points={points} fill="currentColor" />
+        </svg>
+      );
+    }
+    if (s === 'pentagon') {
+      const sides = 5;
+      const pts: Array<[number, number]> = [];
+      for (let i = 0; i < sides; i++) {
+        const a = (i / sides) * Math.PI * 2 - Math.PI / 2;
+        pts.push([half + Math.cos(a) * r, half + Math.sin(a) * r]);
+      }
+      const d = pts.map((p) => p.join(",")).join(" ");
+      return (
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="text-yellow-400">
+          <polygon points={d} fill="currentColor" />
+        </svg>
+      );
+    }
+    // default circle
+    return (
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="text-yellow-400">
+        <circle cx={half} cy={half} r={r} fill="currentColor" />
+      </svg>
+    );
+  };
+
   return (
     <div className="h-full flex flex-col">
-      <div className="fixed top-[61px] inset-x-0 bg-neutral-900 z-10">
+      {/* Sub-navigation header for Logs/Graphs */}
+      <div className="fixed top-[61.5px] inset-x-0 bg-neutral-900 z-10">
         <AnalyticsHeader />
       </div>
-      <div className="flex-1 bg-black pt-10">
-        <div className="fixed inset-x-0 top-24 bottom-0 bg-black text-white flex">
+
+      {/* Main content under the sub-header */}
+      <div className="fixed inset-x-0 top-[96px] bottom-0 bg-black text-white flex z-0">
           {/* Left Panel - Completely Separate */}
           <div 
             className="h-full bg-neutral-800 overflow-hidden"
@@ -207,35 +301,22 @@ const Graphs = () => {
                 </div>
 
                 <div className="pt-2 border-t border-neutral-700">
-                  <h3 className="text-sm font-medium text-yellow-400 mb-2">Selected Data</h3>
-                  <div className="space-y-2">
-                    <LogUploader
-                      uploading={uploading}
-                      uploadProgress={uploadProgress}
-                      onUploadStart={() => {
-                        setUploading(true);
-                        setUploadProgress(0);
-                        setLogs([]);
-                      }}
-                      onUploadProgress={setUploadProgress}
-                      onUploadComplete={() => setUploading(false)}
-                      onLogsProcessed={(processedLogs, fileName) => {
-                        setLogs(processedLogs);
-                        setCurrentDataset(fileName);
-                      }}
-                    />
-                    {uploading && (
-                      <div className="space-y-1">
-                        <div className="text-xs text-neutral-400">Uploading...</div>
-                        <Progress value={uploadProgress} className="h-1" />
+                  <h3 className="text-sm font-medium text-yellow-400 mb-2">Selected Datasets</h3>
+                  {selectedDatasets.length === 0 ? (
+                    <div className="text-xs text-neutral-400">No datasets selected on Analytics page.</div>
+                  ) : (
+                    <div className="space-y-1">
+                      {selectedDatasets.map(ds => (
+                        <div key={ds.id} className="rounded bg-neutral-900 border border-neutral-700 px-3 py-1 text-sm text-neutral-200 flex items-center gap-2">
+                          <ShapeMark shape={datasetShapes[String(ds.id)]} />
+                          <span>{ds.name}</span>
+                        </div>
+                      ))}
+                      <div className="text-xs text-neutral-400 pt-1">
+                        {logs.length} logs loaded from {selectedDatasets.length} dataset{selectedDatasets.length>1?'s':''}
                       </div>
-                    )}
-                    {currentDataset && (
-                      <div className="rounded bg-neutral-900 border border-neutral-700 px-3 py-2">
-                        <div className="text-sm text-neutral-200">{currentDataset}</div>
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="pt-2 border-t border-neutral-700">
@@ -266,6 +347,72 @@ const Graphs = () => {
                     />
                   </div>
                 </div>
+
+                <div className="pt-2 border-t border-neutral-700">
+                  <h3 className="text-sm font-medium text-yellow-400 mb-2">Graph Physics</h3>
+                  <div className="space-y-3 text-xs">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-neutral-300">Center</span>
+                        <span className="text-neutral-400">{centerStrength.toFixed(2)}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={0.5}
+                        step={0.01}
+                        value={centerStrength}
+                        onChange={(e) => setCenterStrength(parseFloat(e.target.value))}
+                        className="w-full"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-neutral-300">Repel</span>
+                        <span className="text-neutral-400">{repelStrength}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={-500}
+                        max={-10}
+                        step={5}
+                        value={repelStrength}
+                        onChange={(e) => setRepelStrength(parseInt(e.target.value, 10))}
+                        className="w-full"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-neutral-300">Link</span>
+                        <span className="text-neutral-400">{linkStrength.toFixed(2)}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={linkStrength}
+                        onChange={(e) => setLinkStrength(parseFloat(e.target.value))}
+                        className="w-full"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-neutral-300">Link distance</span>
+                        <span className="text-neutral-400">{linkDistance}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={10}
+                        max={200}
+                        step={5}
+                        value={linkDistance}
+                        onChange={(e) => setLinkDistance(parseInt(e.target.value, 10))}
+                        className="w-full"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -279,7 +426,7 @@ const Graphs = () => {
           )}
 
           {/* Main Content Area */}
-          <div className="flex-1 h-full flex flex-col min-h-0">
+          <div className="flex-1 h-full flex flex-col min-h-0" style={{ minWidth: MIN_GRAPH_WIDTH }}>
             {/* Graph Header */}
             <div className="px-4 py-2 border-b border-neutral-800">
               <div className="flex items-center gap-x-4">
@@ -300,9 +447,7 @@ const Graphs = () => {
                     </>
                   )}
                 </button>
-                <span className="text-sm text-neutral-400">
-                  {logs.length} logs loaded
-                </span>
+                <span className="text-sm text-neutral-400">{logs.length} logs loaded</span>
               </div>
             </div>
 
@@ -324,20 +469,20 @@ const Graphs = () => {
                       <ObsidianGraph
                         logs={logs.map((log, index) => ({
                           ...log,
-                          id: log.id || `log-${index}`, // Ensure each log has an ID
-                          type: log.type || log.event_type || 'unknown',
-                          dataset: currentDataset || 'unknown'
+                          id: log.id || `log-${index}`,
+                          type: log.type || log.event_type || 'unknown'
                         }))}
                         selectedRelationship={selectedRelationship}
                         colors={Object.fromEntries(eventColors.map(c => [c.eventType, c.color]))}
                         colorCriteria={colorCriteria}
                         shapes={{
-                          'azure-ad': 'circle',
-                          'windows-security': 'square',
-                          'aws-cloudwatch': 'triangle',
-                          'linux-syslog': 'diamond',
-                          'default': 'circle'
+                          ...datasetShapes,
+                          default: 'circle',
                         }}
+                        centerStrength={centerStrength}
+                        repelStrength={repelStrength}
+                        linkStrength={linkStrength}
+                        linkDistance={linkDistance}
                         onNodeClick={(node) => console.log('Node clicked:', node)}
                       />
                     )}
@@ -365,7 +510,6 @@ const Graphs = () => {
             </div>
           </div>
         </div>
-      </div>
     </div>
   );
 };
