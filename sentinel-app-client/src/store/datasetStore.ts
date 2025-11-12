@@ -5,6 +5,7 @@ import { DatasetItem } from "@/types/types";
 interface DatasetStore {
     datasets: DatasetItem[];
     addDataset: (dataset: DatasetItem) => void;
+    updateDataset: (id: number, partial: Partial<DatasetItem>) => void;
     removeDataset: (id: number) => void;
     clearDatasets: () => void;
 }
@@ -22,6 +23,18 @@ export const useDatasetStore: UseBoundStore<StoreApi<DatasetStore>> = create<Dat
                 const updatedDataset = { ...dataset, size };
                 return { datasets: [...state.datasets, updatedDataset] };
             }),
+        updateDataset: (id, partial) =>
+            set((state) => ({
+                datasets: state.datasets.map((d) =>
+                    d.id === id
+                        ? {
+                              ...d,
+                              ...partial,
+                              size: partial.content ? calculateSize(partial.content) : d.size,
+                          }
+                        : d
+                ),
+            })),
         removeDataset: (id) =>
             set((state) => ({ datasets: state.datasets.filter((d) => d.id !== id) })),
         clearDatasets: () => set({ datasets: [] }),
