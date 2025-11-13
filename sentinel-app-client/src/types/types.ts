@@ -33,7 +33,7 @@ export type DatasetItem = {
     path: string;
     size?: number;
     lastModified?: number;
-    content?: string;
+    content?: string | null;
     addedAt: string;
     updatedAt?: string;
 };
@@ -50,9 +50,17 @@ export type ClientListResponse = {
 };
 export type ClientOneResponse = { record: DbDataset };
 
+export type JsonValue =
+    | string
+    | number
+    | boolean
+    | null
+    | JsonValue[]
+    | { [key: string]: JsonValue };
+
 export type RawLog = {
     _raw?: string;
-    id?: number;
+    id: number;
     appDisplayName?: string;
     resourceDisplayName?: string;
     conditionalAccessStatus?: string;
