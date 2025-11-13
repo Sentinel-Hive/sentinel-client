@@ -122,58 +122,45 @@ export default function Datasets() {
         let fallbackId = 1;
 
         // Try full JSON document
-        try {
-            const parsed = JSON.parse(text) as JsonValue;
-            if (Array.isArray(parsed)) {
-                parsed.forEach((item) => {
-                    if (isJsonObject(item)) {
-                        const log = coerceLogFromRaw(item, fallbackId++);
-                        rows.push({
-                            ...log,
-                            datasetId: dataset.id,
-                            datasetName: dataset.name,
-                            raw: item,
-                        });
-                    }
-                });
-                if (rows.length > 0) return rows;
-            } else if (isJsonObject(parsed)) {
-                const log = coerceLogFromRaw(parsed, fallbackId++);
-                rows.push({
-                    ...log,
-                    datasetId: dataset.id,
-                    datasetName: dataset.name,
-                    raw: parsed,
-                });
-                return rows;
-            }
-        } catch (error) {
-            console.warn("Dataset is not a single JSON document, trying line-by-line", {
-                datasetId: dataset.id,
-                error,
+
+        const parsed = JSON.parse(text) as JsonValue;
+        if (Array.isArray(parsed)) {
+            parsed.forEach((item) => {
+                if (isJsonObject(item)) {
+                    const log = coerceLogFromRaw(item, fallbackId++);
+                    rows.push({
+                        ...log,
+                        datasetId: dataset.id,
+                        datasetName: dataset.name,
+                        raw: item,
+                    });
+                }
             });
+            if (rows.length > 0) return rows;
+        } else if (isJsonObject(parsed)) {
+            const log = coerceLogFromRaw(parsed, fallbackId++);
+            rows.push({
+                ...log,
+                datasetId: dataset.id,
+                datasetName: dataset.name,
+                raw: parsed,
+            });
+            return rows;
         }
 
         const lines = text.split(/\r?\n/);
         for (const rawLine of lines) {
             const ln = rawLine.trim();
             if (!ln) continue;
-            try {
-                const parsedLine = JSON.parse(ln) as JsonValue;
-                if (isJsonObject(parsedLine)) {
-                    const log = coerceLogFromRaw(parsedLine, fallbackId++);
-                    rows.push({
-                        ...log,
-                        datasetId: dataset.id,
-                        datasetName: dataset.name,
-                        raw: parsedLine,
-                    });
-                }
-            } catch (error) {
-                console.warn("Failed to parse JSON line in dataset", {
+
+            const parsedLine = JSON.parse(ln) as JsonValue;
+            if (isJsonObject(parsedLine)) {
+                const log = coerceLogFromRaw(parsedLine, fallbackId++);
+                rows.push({
+                    ...log,
                     datasetId: dataset.id,
-                    line: ln,
-                    error,
+                    datasetName: dataset.name,
+                    raw: parsedLine,
                 });
             }
         }
@@ -190,17 +177,13 @@ export default function Datasets() {
     }, [datasets]);
 
     const loadDataset = async (id: number, path: string) => {
-        try {
-            const res = await fetchDatasetContent(id, path);
+        const res = await fetchDatasetContent(id, path);
 
-            if (res != null) {
-                updateDataset(id, {
-                    content: res,
-                });
-                toast.success(`Successfully loaded content from dataset id:${id}`);
-            }
-        } catch (err) {
-            console.error("Failed to load dataset content", err);
+        if (res != null) {
+            updateDataset(id, {
+                content: res,
+            });
+            toast.success(`Successfully loaded content from dataset id:${id}`);
         }
     };
 
