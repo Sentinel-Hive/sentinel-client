@@ -298,6 +298,11 @@ const _wsHandlers = new Set<(msg: unknown) => void>();
 const _wsOpenHandlers = new Set<(open: boolean) => void>();
 let _wsOpen = false;
 
+let _heartbeatTimeout: NodeJS.Timeout | null = null;
+let _serverReachable = true;
+const HEARTBEAT_TIMEOUT = 60000; // 60 seconds
+const PING_INTERVAL = 15000; // 15 seconds
+
 function _emitWsOpen(open: boolean) {
     _wsOpen = open;
     for (const fn of _wsOpenHandlers) {
@@ -333,10 +338,61 @@ function isAlertMessage(v: unknown): v is AlertType {
     return isRecord(v) && v["type"] === "alert";
 }
 
-function isPopupMessage(v: unknown): v is PopupMessage {
-    return isRecord(v) && v["type"] === "popup";
+function resetHeartbeatTimeout() {
+    if (_heartbeatTimeout) {
+        clearTimeout(_heartbeatTimeout);
+    }
+    _heartbeatTimeout = setTimeout(() => {
+        console.error("[WS] Heartbeat timeout - server not responding");
+        addPopupToStore("Server connection lost. Logging out...");
+
+        logout().then(() => {
+            if (typeof window !== "undefined") {
+                window.location.href = "/login";
+            }
+        });
+    }, HEARTBEAT_TIMEOUT);
 }
 
+function startConnectionMonitoring() {
+    const healthCheckInterval = setInterval(async () => {
+        try {
+            const reachable = await ping();
+
+            if (!reachable && _serverReachable) {
+                _serverReachable = false;
+                console.error("[CONNECTION] Server unreachable - forcing logout");
+
+                addPopupToStore("Server connection lost. Logging out...");
+
+                await logout();
+
+                if (typeof window !== "undefined") {
+                    window.location.href = "/login";
+                }
+            } else if (reachable && !_serverReachable) {
+                _serverReachable = true;
+            }
+        } catch (e) {
+            console.error("[CONNECTION] Health check error:", e);
+            if (_serverReachable) {
+                _serverReachable = false;
+                console.error ("[CONNECTION] Health check failed - forcing logout");
+                addPopupToStore("Server connection lost. Logging out ...");
+                await logout();
+
+                if (typeof window !== "undefined") {
+                    window.location.href = "/login";
+                }
+            }
+        }
+    }, PING_INTERVAL)
+
+    return healthCheckInterval;
+}
+
+let _connectionMonitorInterval: NodeJS.Timeout | null = null;
+    
 export function connectWebsocket() {
     if (!_token) {
         console.warn("[WS] No token — cannot connect");
@@ -352,6 +408,12 @@ export function connectWebsocket() {
         // no-op
     }
 
+    // Clear previous heartbeat timeout if any
+    if (_heartbeatTimeout) {
+        clearTimeout(_heartbeatTimeout);
+        _heartbeatTimeout = null;
+    }
+
     const ws = new WebSocket(url);
     _websocket = ws;
     _websocketUrl = url;
@@ -359,6 +421,16 @@ export function connectWebsocket() {
     ws.onopen = () => {
         console.log("[WS] onopen");
         _emitWsOpen(true);
+        _serverReachable = true;
+        // intentionally NOT sending a "hello" message
+
+        // Start connection monitoring
+        if (!_connectionMonitorInterval) {
+            _connectionMonitorInterval = startConnectionMonitoring();
+        }
+        
+        // Start heartbeat timeout
+        resetHeartbeatTimeout();
     };
 
     ws.onmessage = (ev: MessageEvent<string | ArrayBufferLike | Blob>) => {
@@ -371,6 +443,45 @@ export function connectWebsocket() {
                 const parsed = JSON.parse(ev.data) as ServerMessage;
                 delivered = parsed;
 
+                // Handle server shutdown notification
+                if ((parsed as any)?.type === "server_shutdown") {
+                    console.error("[WS] Server is shutting down");
+                    const message = (parsed as any)?.message || "Server is shutting down";
+
+                    // Show notification to user
+                    addPopupToStore(message);
+
+                    // Close the websocket connection
+                    try{
+                        _websocket?.close();
+                    } catch {}
+
+                    // Force logout
+                    setTimeout(async () => {
+                        await logout();
+                        if (typeof window !== "undefined") {
+                            window.location.href = "/login?reason=server_shutdown";
+                        }
+                    }, 2000);
+
+                    return;
+                }
+
+                // Handle heartbeat response from server
+                if ((parsed as any)?.type === 'heartbeat') {
+                    console.log("[WS] Heartbeat received from server");
+                    resetHeartbeatTimeout();
+                    
+                    // Respond to heartbeat
+                    try {
+                        websocketSend({ type: "pong", timestamp: new Date().toISOString() });
+                    } catch (e) {
+                        console.error("[WS] Failed to respond to heartbeat:", e);
+                    }
+                    return; // no further processing needed
+                }
+
+                // Alerts: feed alert store (already present)
                 if (isAlertMessage(parsed)) {
                     try {
                         addAlert(parsed);
@@ -402,10 +513,59 @@ export function connectWebsocket() {
     ws.onclose = (e: CloseEvent) => {
         console.log("[WS] onclose code=", e.code, "reason=", e.reason);
         _emitWsOpen(false);
+
+        // Clear heartbeat timeout
+        if (_heartbeatTimeout) {
+            clearTimeout(_heartbeatTimeout);
+            _heartbeatTimeout = null;
+        }
+
+        // If auth issue(4401), force logout
+        if (e.code === 4401) {
+            console.error("[WS] Connection closed: Token expired or invalid");
+            addPopupToStore("Session expired. Please log in again.");
+
+            logout().then(() => {
+                if (typeof window !== "undefined") {
+                    window.location.href = "/login";
+                }
+            });
+        }
+
+        // Server shutting down
+        if (e.code === 1001) {            
+            console.error('[WS] Connection closed: Server is shutting down.');
+            addPopupToStore('Server is shutting down.  Please log in again later.');
+
+            logout().then(() => {
+                if (typeof window !== "undefined") {
+                    window.location.href = "/login?reason=server_shutdown";
+                }
+            });
+        }
+
+        // Abnormal closure - possible network issues
+        if (e.code === 1006){
+            console.error('[WS] Connection closed abnormally. Possible network issues.');
+            addPopupToStore('Connection lost due to network issues. Please check your connection.');
+
+            logout().then(() => {
+                if (typeof window !== "undefined") {
+                    window.location.href = "/login?reason=network_issue";
+                }
+            });
+        }
     };
 
     ws.onerror = (e: Event) => {
         console.error("[WS] onerror:", e);
+        _serverReachable = false;
+
+        // Clear heartbeat timeout
+        if (_heartbeatTimeout) {
+            clearTimeout(_heartbeatTimeout);
+            _heartbeatTimeout = null;
+        }
     };
 }
 
@@ -425,6 +585,19 @@ export function onWebsocketMessage(fn: (msg: unknown) => void) {
 
 export function closeWebsocket() {
     console.log("[WS] manual close");
+
+    // Clear heartbeat timeout
+    if (_heartbeatTimeout) {
+        clearTimeout(_heartbeatTimeout);
+        _heartbeatTimeout = null;
+    }
+
+    // Clear connection monitoring interval
+    if (_connectionMonitorInterval) {
+        clearInterval(_connectionMonitorInterval);
+        _connectionMonitorInterval = null;
+    }
+    
     try {
         _websocket?.close();
     } catch {
