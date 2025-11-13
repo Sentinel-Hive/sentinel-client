@@ -729,15 +729,26 @@ export function connectWebsocket() {
             });
         }
 
-        // Handle error code
-        if (e.code === 1001) {
-            // Server shutting down
+        // Server shutting down
+        if (e.code === 1001) {            
             console.error('[WS] Connection closed: Server is shutting down.');
             addPopupToStore('Server is shutting down.  Please log in again later.');
 
             logout().then(() => {
                 if (typeof window !== "undefined") {
                     window.location.href = "/login?reason=server_shutdown";
+                }
+            });
+        }
+
+        // Abnormal closure - possible network issues
+        if (e.code === 1006){
+            console.error('[WS] Connection closed abnormally. Possible network issues.');
+            addPopupToStore('Connection lost due to network issues. Please check your connection.');
+
+            logout().then(() => {
+                if (typeof window !== "undefined") {
+                    window.location.href = "/login?reason=network_issue";
                 }
             });
         }
