@@ -9,7 +9,6 @@ interface ErrorGraphProps {
   logs: Log[];
 }
 
-// Always HTTP-App + http_status_code from your generator
 function isHttpLog(log: Log): boolean {
   const raw: any = (log as any).raw || {};
   return raw.app === "HTTP-App" && typeof raw.http_status_code === "number";
@@ -165,7 +164,7 @@ const ErrorGraph = ({ logs }: ErrorGraphProps) => {
       bucket.perCode.set(code!, arr);
     }
 
-    // Densify: make sure we have a bucket for EVERY day between min & max
+    // Densify: make sure bucket for EVERY day between min & max
     const keys = Array.from(bucketMap.keys());
     if (keys.length === 0) {
       return {
@@ -204,16 +203,13 @@ const ErrorGraph = ({ logs }: ErrorGraphProps) => {
     const codesArray = Array.from(allCodesSet).sort((a, b) => a - b);
 
 
-    // For each status code, build a complete time series with zeros + slight X jitter
     const byCode = new Map<number, SeriesPoint[]>();
 
-    // how far within a day we’re allowed to “spread” lines horizontally
     const jitterSpanMs = ONE_DAY * 0.6; // max spread is ±0.3 days around the center
 
     for (const code of codesArray) {
     const arr: SeriesPoint[] = [];
 
-    // Position of this code within the set of codes, centered around 0
     const codeIndex = codesArray.indexOf(code);
     const centerIndex = (codesArray.length - 1) / 2;
     const jitterFraction =
@@ -228,7 +224,6 @@ const ErrorGraph = ({ logs }: ErrorGraphProps) => {
         const baseTime = bucket.date.getTime();
 
         arr.push({
-        // same “day”, but nudged slightly left/right per code
         date: new Date(baseTime + jitterMs),
         count: logsForCode ? logsForCode.length : 0,
         });
