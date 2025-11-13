@@ -58,7 +58,7 @@ export enum RelationshipTypes {
     USER_EVENT = "User Event",
     APP_EVENT = "App Event",
     HOST_EVENT = "Host Event",
-    SEVERITY_LEVEL = "Severity Level"
+    SEVERITY_LEVEL = "Severity Level",
 }
 
 export type NodeData = {

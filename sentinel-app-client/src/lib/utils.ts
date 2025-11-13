@@ -8,15 +8,15 @@ export function getLogField(log: Log, field: string): string {
         if (!log.raw) return undefined;
         const raw: any = log.raw as any;
         for (const k of keys) {
-            if (k.includes('.')) {
+            if (k.includes(".")) {
                 // support simple nested paths like 'source.ip'
-                const [a, b] = k.split('.') as [string, string];
+                const [a, b] = k.split(".") as [string, string];
                 const v = raw?.[a]?.[b];
-                if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean')
+                if (typeof v === "string" || typeof v === "number" || typeof v === "boolean")
                     return String(v);
             } else if (k in raw) {
                 const v = raw[k];
-                if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean')
+                if (typeof v === "string" || typeof v === "number" || typeof v === "boolean")
                     return String(v);
             }
         }
@@ -86,7 +86,13 @@ export function getLogField(log: Log, field: string): string {
                 log.app ||
                 (log as any).appDisplayName ||
                 (log as any).resourceDisplayName ||
-                fromRaw(["app", "appDisplayName", "resourceDisplayName", "application", "service.name"]) ||
+                fromRaw([
+                    "app",
+                    "appDisplayName",
+                    "resourceDisplayName",
+                    "application",
+                    "service.name",
+                ]) ||
                 ""
             );
         }

@@ -29,6 +29,7 @@ import {
     uniqueFieldValues,
     getDatasetLabel,
 } from "@/lib/utils";
+import LogTimeline from "../components/LogTimeline";
 
 const filterFields: FilterField[] = [
     { key: "src_ip", label: "Source IP" },
@@ -45,6 +46,8 @@ const filterFields: FilterField[] = [
 
 const TITLE_H = 30;
 const DEFAULT_FILTERS_HEIGHT = 260;
+const TIMELINE_H = 200;
+const HEADER_BLOCK = 96; // sub-header (AnalyticsHeader) top offset
 
 export default function Analytics() {
     const datasets = useDatasets();
@@ -64,6 +67,7 @@ export default function Analytics() {
     const selectedDatasetIds = useSelectedDatasetIds();
     const selectedDatasets = useSelectedDatasets();
     const logs = useSelectedLogs();
+
     const [displayedLogs, setDisplayedLogs] = useState<Log[]>([]);
     const [query, setQuery] = useState("");
     const [filters, setFilters] = useState<string[]>([]);
@@ -148,8 +152,6 @@ export default function Analytics() {
 
     const formatEventType = (evtRaw: string): string => {
         if (!evtRaw) return "";
-        // Take last segment after dot if dotted (e.g., http.forbidden -> forbidden)
-        // If comma separated, take last non-empty trimmed part.
         const cleaned = evtRaw.trim();
         const commaParts = cleaned
             .split(",")
@@ -158,7 +160,6 @@ export default function Analytics() {
         const lastComma = commaParts.length ? commaParts[commaParts.length - 1] : cleaned;
         const dotParts = lastComma.split(".").filter(Boolean);
         const core = dotParts.length ? dotParts[dotParts.length - 1] : lastComma;
-        // Replace underscores with space and title-case each word.
         return core
             .replace(/_/g, " ")
             .split(/\s+/)
@@ -174,7 +175,6 @@ export default function Analytics() {
         if (app && evtDisplay) return app + " " + evtDisplay;
         if (app) return app;
         if (evtDisplay) return evtDisplay;
-        // fallback to id then message
         return (record.message ?? record.id ?? "").toString();
     };
 
@@ -374,29 +374,32 @@ export default function Analytics() {
 
     // Lazy-load dataset files when a dataset is selected so logs populate
     useEffect(() => {
-    if (selectedDatasetIds.length === 0) return;
+        if (selectedDatasetIds.length === 0) return;
 
-    const { updateDataset, datasets } = useDatasetStore.getState();
+        const { updateDataset, datasets } = useDatasetStore.getState();
 
-    (async () => {
-        for (const id of selectedDatasetIds) {
-            const ds = datasets.find((d) => d.id === id);
-            if (!ds) continue;
-            if (!ds.path) continue;
-            if (ds.content && ds.content.length > 0) continue;
+        (async () => {
+            for (const id of selectedDatasetIds) {
+                const ds = datasets.find((d) => d.id === id);
+                if (!ds) continue;
+                if (!ds.path) continue;
+                if (ds.content && ds.content.length > 0) continue;
 
-            try {
-                const content = await fetchDatasetContent(ds.id, ds.path);
-                if (content) {
-                    // This will also refresh logsCache for this dataset
-                    updateDataset(ds.id, { content });
+                try {
+                    const content = await fetchDatasetContent(ds.id, ds.path);
+                    if (content) {
+                        updateDataset(ds.id, { content });
+                    }
+                } catch (e) {
+                    console.error("Failed to fetch dataset content for", ds.id, e);
                 }
-            } catch (e) {
-                console.error("Failed to fetch dataset content for", ds.id, e);
             }
-        }
-    })();
-}, [selectedDatasetIds]);
+        })();
+    }, [selectedDatasetIds]);
+
+    // Timeline uses the same filtered logs as the log list (ignoring pagination on purpose)
+    const hasTimeline = filteredLogs.length > 0;
+    const mainTop = hasTimeline ? HEADER_BLOCK + TIMELINE_H : HEADER_BLOCK;
 
     return (
         <>
@@ -405,315 +408,338 @@ export default function Analytics() {
                 <AnalyticsHeader />
             </div>
 
-            {/* Page body under the sub-header */}
-            <div className="fixed inset-x-0 top-[96px] bottom-0 bg-black text-white flex overflow-hidden z-0">
-            {resizing && (
+            {/* Fixed timeline under sub-header, driven by filtered logs */}
+            {hasTimeline && (
                 <div
-                    className={`fixed inset-0 z-[9999] bg-transparent ${
-                        isResizingSidebar ? "cursor-col-resize" : "cursor-row-resize"
-                    } select-none`}
-                />
+                    className="fixed inset-x-0 z-10 border-b border-neutral-800 bg-black"
+                    style={{ top: `${HEADER_BLOCK}px`, height: `${TIMELINE_H}px` }}
+                >
+                    <div className="h-full px-4 py-2">
+                        <LogTimeline logs={filteredLogs} height={TIMELINE_H} />
+                    </div>
+                </div>
             )}
 
-            {!sidebarCollapsed && (
-                <div
-                    ref={sidebarRef}
-                    className="relative h-full bg-neutral-900 border-r border-neutral-700 flex flex-col transition-all duration-150 pr-[6px]"
-                    style={{ width: sidebarWidth }}
-                >
-                    {!filtersCollapsed ? (
-                        <div
-                            className="flex flex-col"
-                            style={{
-                                height: logListCollapsed
-                                    ? `calc(100% - ${TITLE_H}px)`
-                                    : filtersHeight,
-                            }}
-                        >
-                            <div className="flex items-center justify-between h-[30px] px-3 bg-neutral-900/95 border-b border-neutral-700 sticky top-0 z-10">
-                                <span className="text-xs font-semibold text-yellow-400">
-                                    Filters
-                                </span>
-                                <div className="flex gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={collapseAllFilterSections}
-                                        className="h-6 px-2 text-[10px] bg-black border border-neutral-700 rounded text-yellow-400"
-                                    >
-                                        Collapse All
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={expandAllFilterSections}
-                                        className="h-6 px-2 text-[10px] bg-black border border-neutral-700 rounded text-yellow-400"
-                                    >
-                                        Expand All
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={handleCollapseFiltersPane}
-                                        className="h-6 w-6 flex items-center justify-center rounded bg-black border border-neutral-700"
-                                    >
-                                        <PanelTopClose className="w-4 h-4 text-yellow-400" />
-                                    </button>
-                                </div>
-                            </div>
+            {/* Page body under header (+ timeline if present) */}
+            <div
+                className="fixed inset-x-0 bottom-0 bg-black text-white flex overflow-hidden z-0"
+                style={{ top: `${mainTop}px` }}
+            >
+                {resizing && (
+                    <div
+                        className={`fixed inset-0 z-[9999] bg-transparent ${
+                            isResizingSidebar ? "cursor-col-resize" : "cursor-row-resize"
+                        } select-none`}
+                    />
+                )}
 
-                            <div className="flex-1 overflow-hidden flex flex-col">
-                                <div className="px-3 pt-2 pb-1">
-                                    <div className="bg-neutral-800 border border-neutral-700 rounded-lg">
+                {!sidebarCollapsed && (
+                    <div
+                        ref={sidebarRef}
+                        className="relative h-full bg-neutral-900 border-r border-neutral-700 flex flex-col transition-all duration-150 pr-[6px]"
+                        style={{ width: sidebarWidth }}
+                    >
+                        {!filtersCollapsed ? (
+                            <div
+                                className="flex flex-col"
+                                style={{
+                                    height: logListCollapsed
+                                        ? `calc(100% - ${TITLE_H}px)`
+                                        : filtersHeight,
+                                }}
+                            >
+                                <div className="flex items-center justify-between h-[30px] px-3 bg-neutral-900/95 border-b border-neutral-700 sticky top-0 z-10">
+                                    <span className="text-xs font-semibold text-yellow-400">
+                                        Filters
+                                    </span>
+                                    <div className="flex gap-2">
                                         <button
                                             type="button"
-                                            onClick={() =>
-                                                setCollapsedFilterSections((prev) => ({
-                                                    ...prev,
-                                                    datasets: !prev.datasets,
-                                                }))
-                                            }
-                                            className="flex items-center justify-between w-full bg-black text-yellow-400 rounded-t-lg px-2 py-1"
+                                            onClick={collapseAllFilterSections}
+                                            className="h-6 px-2 text-[10px] bg-black border border-neutral-700 rounded text-yellow-400"
                                         >
-                                            <span className="text-sm font-semibold">Datasets</span>
-                                            {collapsedFilterSections.datasets ? (
-                                                <ChevronDown className="w-4 h-4" />
-                                            ) : (
-                                                <ChevronUp className="w-4 h-4" />
-                                            )}
+                                            Collapse All
                                         </button>
-                                        {!collapsedFilterSections.datasets && (
-                                            <div className="p-2 flex flex-col gap-2 text-sm max-h-40 overflow-y-auto">
-                                                {datasets.length === 0 ? (
-                                                    <span className="text-xs text-neutral-400">
-                                                        No datasets.
-                                                    </span>
-                                                ) : (
-                                                    datasets.map((ds) => {
-                                                        const selected = selectedDatasets.some(
-                                                            (d) => d.id === ds.id
-                                                        );
-                                                        return (
-                                                            <label
-                                                                key={ds.id}
-                                                                className="flex items-center gap-2"
-                                                            >
-                                                                <Checkbox
-                                                                    checked={selected}
-                                                                    onCheckedChange={() =>
-                                                                        toggleDataset(ds)
-                                                                    }
-                                                                />
-                                                                <span>{getDatasetLabel(ds)}</span>
-                                                            </label>
-                                                        );
-                                                    })
-                                                )}
-                                                {selectedDatasets.length > 0 && (
-                                                    <div className="pt-1">
-                                                        <button
-                                                            type="button"
-                                                            onClick={clearDatasets}
-                                                            className="text-[11px] text-yellow-400 hover:underline"
-                                                        >
-                                                            Clear selection
-                                                        </button>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={expandAllFilterSections}
+                                            className="h-6 px-2 text-[10px] bg-black border border-neutral-700 rounded text-yellow-400"
+                                        >
+                                            Expand All
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleCollapseFiltersPane}
+                                            className="h-6 w-6 flex items-center justify-center rounded bg-black border border-neutral-700"
+                                        >
+                                            <PanelTopClose className="w-4 h-4 text-yellow-400" />
+                                        </button>
                                     </div>
                                 </div>
 
-                                <FilterPanel
-                                    query={query}
-                                    onQueryChange={setQuery}
-                                    sortOption={sortOption}
-                                    onSortChange={setSortOption}
-                                    onClearAll={clearAll}
-                                    onCollapseAll={collapseAllFilterSections}
-                                    filterFields={filterFields}
-                                    collapsedSections={collapsedFilterSections}
-                                    toggleSection={(key) =>
-                                        setCollapsedFilterSections((prev) => ({
-                                            ...prev,
-                                            [key]: !prev[key],
-                                        }))
-                                    }
-                                    uniqueValues={uniqueValues}
-                                    fieldFilters={fieldFilters}
-                                    toggleFieldValue={toggleFieldFilter}
-                                    dateFrom={dateFrom}
-                                    dateTo={dateTo}
-                                    onDateFromChange={setDateFrom}
-                                    onDateToChange={setDateTo}
-                                    loadedFilterOptions={loadedFilterOptions}
-                                    loadMoreFilterOptions={loadMoreFilterOptions}
-                                />
+                                <div className="flex-1 overflow-hidden flex flex-col">
+                                    <div className="px-3 pt-2 pb-1">
+                                        <div className="bg-neutral-800 border border-neutral-700 rounded-lg">
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    setCollapsedFilterSections((prev) => ({
+                                                        ...prev,
+                                                        datasets: !prev.datasets,
+                                                    }))
+                                                }
+                                                className="flex items-center justify-between w-full bg-black text-yellow-400 rounded-t-lg px-2 py-1"
+                                            >
+                                                <span className="text-sm font-semibold">
+                                                    Datasets
+                                                </span>
+                                                {collapsedFilterSections.datasets ? (
+                                                    <ChevronDown className="w-4 h-4" />
+                                                ) : (
+                                                    <ChevronUp className="w-4 h-4" />
+                                                )}
+                                            </button>
+                                            {!collapsedFilterSections.datasets && (
+                                                <div className="p-2 flex flex-col gap-2 text-sm max-h-40 overflow-y-auto">
+                                                    {datasets.length === 0 ? (
+                                                        <span className="text-xs text-neutral-400">
+                                                            No datasets.
+                                                        </span>
+                                                    ) : (
+                                                        datasets.map((ds) => {
+                                                            const selected = selectedDatasets.some(
+                                                                (d) => d.id === ds.id
+                                                            );
+                                                            return (
+                                                                <label
+                                                                    key={ds.id}
+                                                                    className="flex items-center gap-2"
+                                                                >
+                                                                    <Checkbox
+                                                                        checked={selected}
+                                                                        onCheckedChange={() =>
+                                                                            toggleDataset(ds)
+                                                                        }
+                                                                    />
+                                                                    <span>
+                                                                        {getDatasetLabel(ds)}
+                                                                    </span>
+                                                                </label>
+                                                            );
+                                                        })
+                                                    )}
+                                                    {selectedDatasets.length > 0 && (
+                                                        <div className="pt-1">
+                                                            <button
+                                                                type="button"
+                                                                onClick={clearDatasets}
+                                                                className="text-[11px] text-yellow-400 hover:underline"
+                                                            >
+                                                                Clear selection
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <FilterPanel
+                                        query={query}
+                                        onQueryChange={setQuery}
+                                        sortOption={sortOption}
+                                        onSortChange={setSortOption}
+                                        onClearAll={clearAll}
+                                        onCollapseAll={collapseAllFilterSections}
+                                        filterFields={filterFields}
+                                        collapsedSections={collapsedFilterSections}
+                                        toggleSection={(key) =>
+                                            setCollapsedFilterSections((prev) => ({
+                                                ...prev,
+                                                [key]: !prev[key],
+                                            }))
+                                        }
+                                        uniqueValues={uniqueValues}
+                                        fieldFilters={fieldFilters}
+                                        toggleFieldValue={toggleFieldFilter}
+                                        dateFrom={dateFrom}
+                                        dateTo={dateTo}
+                                        onDateFromChange={setDateFrom}
+                                        onDateToChange={setDateTo}
+                                        loadedFilterOptions={loadedFilterOptions}
+                                        loadMoreFilterOptions={loadMoreFilterOptions}
+                                    />
+                                </div>
                             </div>
-                        </div>
-                    ) : (
-                        <div className="flex items-center justify-between h-[30px] px-3 bg-neutral-900/95 border-b border-neutral-700">
-                            <span className="text-xs font-semibold text-yellow-400">Filters</span>
-                            <button
-                                type="button"
-                                onClick={handleCollapseFiltersPane}
-                                className="h-6 w-6 flex items-center justify-center rounded bg-black border border-neutral-700"
-                            >
-                                <PanelTopClose className="w-4 h-4 text-yellow-400 rotate-180" />
-                            </button>
-                        </div>
-                    )}
+                        ) : (
+                            <div className="flex items-center justify-between h-[30px] px-3 bg-neutral-900/95 border-b border-neutral-700">
+                                <span className="text-xs font-semibold text-yellow-400">
+                                    Filters
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={handleCollapseFiltersPane}
+                                    className="h-6 w-6 flex items-center justify-center rounded bg-black border border-neutral-700"
+                                >
+                                    <PanelTopClose className="w-4 h-4 text-yellow-400 rotate-180" />
+                                </button>
+                            </div>
+                        )}
 
-                    {!filtersCollapsed && !logListCollapsed && (
-                        <div
-                            onMouseDown={() => setIsResizingFilters(true)}
-                            className="absolute left-0 bg-neutral-700/70 hover:bg-yellow-400/70 cursor-row-resize z-30"
-                            style={{
-                                top: filtersHeight - 2,
-                                height: 6,
-                                width: "calc(100% - 8px)",
-                            }}
-                        />
-                    )}
+                        {!filtersCollapsed && !logListCollapsed && (
+                            <div
+                                onMouseDown={() => setIsResizingFilters(true)}
+                                className="absolute left-0 bg-neutral-700/70 hover:bg-yellow-400/70 cursor-row-resize z-30"
+                                style={{
+                                    top: filtersHeight - 2,
+                                    height: 6,
+                                    width: "calc(100% - 8px)",
+                                }}
+                            />
+                        )}
 
-                    {!logListCollapsed ? (
-                        <div className="flex-1 min-h-0 flex flex-col">
-                            <div className="flex items-center justify-between h-[30px] px-3 bg-neutral-900/95 border-b border-neutral-700 sticky top-0 z-10">
+                        {!logListCollapsed ? (
+                            <div className="flex-1 min-h-0 flex flex-col">
+                                <div className="flex items-center justify-between h-[30px] px-3 bg-neutral-900/95 border-b border-neutral-700 sticky top-0 z-10">
+                                    <span className="text-xs font-semibold text-yellow-400">
+                                        Logs
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={handleCollapseLogList}
+                                        className="h-6 w-6 flex items-center justify-center rounded bg-black border border-neutral-700"
+                                    >
+                                        <PanelBottomClose className="w-4 h-4 text-yellow-400" />
+                                    </button>
+                                </div>
+                                <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-2 space-y-2">
+                                    {displayedLogs.length === 0 ? (
+                                        <div className="text-sm text-neutral-400 text-center py-4">
+                                            No logs.
+                                        </div>
+                                    ) : (
+                                        displayedLogs.map((log) => {
+                                            const isSelected =
+                                                selectedLog?.id === log.id &&
+                                                selectedLog?.datasetId === log.datasetId;
+                                            return (
+                                                <div
+                                                    key={`${log.datasetId ?? "unknown"}:${log.id}`}
+                                                    onClick={() =>
+                                                        setSelectedLog((prev) =>
+                                                            prev &&
+                                                            prev.id === log.id &&
+                                                            prev.datasetId === log.datasetId
+                                                                ? null
+                                                                : log
+                                                        )
+                                                    }
+                                                    className={`p-2 rounded border overflow-hidden cursor-pointer ${
+                                                        isSelected
+                                                            ? "bg-yellow-400 text-black border-yellow-300"
+                                                            : "bg-neutral-800 border-neutral-700 hover:bg-neutral-700"
+                                                    }`}
+                                                >
+                                                    {getDisplayName(log.raw)}
+                                                </div>
+                                            );
+                                        })
+                                    )}
+                                    {logsToShow < filteredLogs.length && (
+                                        <Button
+                                            onClick={loadMoreLogs}
+                                            className="w-full bg-neutral-800 border border-neutral-600 hover:bg-neutral-700"
+                                        >
+                                            Load More
+                                        </Button>
+                                    )}
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex items-center justify-between h-[30px] px-3 bg-neutral-900/95 border-t border-neutral-700">
                                 <span className="text-xs font-semibold text-yellow-400">Logs</span>
                                 <button
                                     type="button"
                                     onClick={handleCollapseLogList}
                                     className="h-6 w-6 flex items-center justify-center rounded bg-black border border-neutral-700"
                                 >
-                                    <PanelBottomClose className="w-4 h-4 text-yellow-400" />
+                                    <PanelBottomClose className="w-4 h-4 text-yellow-400 rotate-180" />
                                 </button>
                             </div>
-                            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-2 space-y-2">
-                                {displayedLogs.length === 0 ? (
-                                    <div className="text-sm text-neutral-400 text-center py-4">
-                                        No logs.
-                                    </div>
-                                ) : (
-                                    displayedLogs.map((log) => {
-                                        const isSelected =
-                                            selectedLog?.id === log.id &&
-                                            selectedLog?.datasetId === log.datasetId;
-                                        return (
-                                            <div
-                                                key={`${log.datasetId ?? "unknown"}:${log.id}`}
-                                                onClick={() =>
-                                                    setSelectedLog((prev) =>
-                                                        prev &&
-                                                        prev.id === log.id &&
-                                                        prev.datasetId === log.datasetId
-                                                            ? null
-                                                            : log
-                                                    )
-                                                }
-                                                className={`p-2 rounded border overflow-hidden cursor-pointer ${
-                                                    isSelected
-                                                        ? "bg-yellow-400 text-black border-yellow-300"
-                                                        : "bg-neutral-800 border-neutral-700 hover:bg-neutral-700"
-                                                }`}
-                                            >
-                                                {getDisplayName(log.raw)}
-                                            </div>
-                                        );
-                                    })
-                                )}
-                                {logsToShow < filteredLogs.length && (
-                                    <Button
-                                        onClick={loadMoreLogs}
-                                        className="w-full bg-neutral-800 border border-neutral-600 hover:bg-neutral-700"
+                        )}
+
+                        <div
+                            onMouseDown={() => setIsResizingSidebar(true)}
+                            className="absolute top-0 right-[-3px] h-full w-[6px] bg-neutral-800/80 hover:bg-yellow-400/70 cursor-col-resize z-40"
+                        />
+                    </div>
+                )}
+
+                <div className="flex-1 min-h-0 flex flex-col bg-black">
+                    <div className="px-4 py-2 text-sm text-neutral-400 flex items-center gap-3 border-b border-neutral-800">
+                        <button
+                            type="button"
+                            onClick={handleToggleSidebar}
+                            className="h-8 px-3 rounded bg-neutral-900 border border-neutral-700 flex items-center gap-2"
+                        >
+                            {sidebarCollapsed ? (
+                                <>
+                                    <ChevronsRight className="w-4 h-4 text-yellow-400" />
+                                    <span className="text-xs text-yellow-400">Show panel</span>
+                                </>
+                            ) : (
+                                <>
+                                    <ChevronsLeft className="w-4 h-4 text-yellow-400" />
+                                    <span className="text-xs text-yellow-400">Hide panel</span>
+                                </>
+                            )}
+                        </button>
+                        <span>
+                            {filteredLogs.length} filtered / {logs.length} total
+                        </span>
+                        <div className="flex-1 flex gap-2 overflow-x-auto no-scrollbar">
+                            {chips.map((chip) => (
+                                <div
+                                    key={chip.id}
+                                    className="flex items-center gap-1 bg-neutral-900 border border-yellow-400/50 rounded-full px-3 py-1 text-xs whitespace-nowrap"
+                                >
+                                    <span className="text-yellow-400">{chip.label}</span>
+                                    <button
+                                        type="button"
+                                        onClick={chip.onRemove}
+                                        className="h-4 w-4 flex items-center justify-center rounded-full bg-black border border-yellow-400/60"
+                                        aria-label="Remove filter"
                                     >
-                                        Load More
-                                    </Button>
-                                )}
+                                        <X className="w-3 h-3 text-yellow-400" />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {logs.length === 0 ? (
+                        <div className="flex-1 min-h-0 flex items-center justify-center">
+                            <div className="w-full max-w-md">
+                                <p>
+                                    Please SYNC with the server using the <strong>Sync</strong>{" "}
+                                    button in the header.
+                                </p>
                             </div>
                         </div>
                     ) : (
-                        <div className="flex items-center justify-between h-[30px] px-3 bg-neutral-900/95 border-t border-neutral-700">
-                            <span className="text-xs font-semibold text-yellow-400">Logs</span>
-                            <button
-                                type="button"
-                                onClick={handleCollapseLogList}
-                                className="h-6 w-6 flex items-center justify-center rounded bg-black border border-neutral-700"
-                            >
-                                <PanelBottomClose className="w-4 h-4 text-yellow-400 rotate-180" />
-                            </button>
+                        <div className="flex-1 min-h-0 m-4 bg-neutral-900 border border-neutral-700 rounded-lg p-4 overflow-auto">
+                            {selectedLog ? (
+                                <pre className="text-xs font-mono whitespace-pre-wrap break-all text-neutral-100">
+                                    {JSON.stringify(selectedLog.raw, null, 2)}
+                                </pre>
+                            ) : (
+                                <div className="text-sm text-neutral-400">
+                                    Select a log to view JSON.
+                                </div>
+                            )}
                         </div>
                     )}
-
-                    <div
-                        onMouseDown={() => setIsResizingSidebar(true)}
-                        className="absolute top-0 right-[-3px] h-full w-[6px] bg-neutral-800/80 hover:bg-yellow-400/70 cursor-col-resize z-40"
-                    />
                 </div>
-            )}
-
-            <div className="flex-1 min-h-0 flex flex-col bg-black">
-                <div className="px-4 py-2 text-sm text-neutral-400 flex items-center gap-3 border-b border-neutral-800">
-                    <button
-                        type="button"
-                        onClick={handleToggleSidebar}
-                        className="h-8 px-3 rounded bg-neutral-900 border border-neutral-700 flex items-center gap-2"
-                    >
-                        {sidebarCollapsed ? (
-                            <>
-                                <ChevronsRight className="w-4 h-4 text-yellow-400" />
-                                <span className="text-xs text-yellow-400">Show panel</span>
-                            </>
-                        ) : (
-                            <>
-                                <ChevronsLeft className="w-4 h-4 text-yellow-400" />
-                                <span className="text-xs text-yellow-400">Hide panel</span>
-                            </>
-                        )}
-                    </button>
-                    <span>
-                        {filteredLogs.length} filtered / {logs.length} total
-                    </span>
-                    <div className="flex-1 flex gap-2 overflow-x-auto no-scrollbar">
-                        {chips.map((chip) => (
-                            <div
-                                key={chip.id}
-                                className="flex items-center gap-1 bg-neutral-900 border border-yellow-400/50 rounded-full px-3 py-1 text-xs whitespace-nowrap"
-                            >
-                                <span className="text-yellow-400">{chip.label}</span>
-                                <button
-                                    type="button"
-                                    onClick={chip.onRemove}
-                                    className="h-4 w-4 flex items-center justify-center rounded-full bg-black border border-yellow-400/60"
-                                    aria-label="Remove filter"
-                                >
-                                    <X className="w-3 h-3 text-yellow-400" />
-                                </button>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                {logs.length === 0 ? (
-                    <div className="flex-1 min-h-0 flex items-center justify-center">
-                        <div className="w-full max-w-md">
-                            <p>
-                                Please SYNC with the server using the <strong>Sync</strong> button
-                                in the header.
-                            </p>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="flex-1 min-h-0 m-4 bg-neutral-900 border border-neutral-700 rounded-lg p-4 overflow-auto">
-                        {selectedLog ? (
-                            <pre className="text-xs font-mono whitespace-pre-wrap break-all text-neutral-100">
-                                {JSON.stringify(selectedLog.raw, null, 2)}
-                            </pre>
-                        ) : (
-                            <div className="text-sm text-neutral-400">
-                                Select a log to view JSON.
-                            </div>
-                        )}
-                    </div>
-                )}
-            </div>
             </div>
         </>
     );

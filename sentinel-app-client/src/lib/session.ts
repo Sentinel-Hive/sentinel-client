@@ -377,7 +377,7 @@ function startConnectionMonitoring() {
             console.error("[CONNECTION] Health check error:", e);
             if (_serverReachable) {
                 _serverReachable = false;
-                console.error ("[CONNECTION] Health check failed - forcing logout");
+                console.error("[CONNECTION] Health check failed - forcing logout");
                 addPopupToStore("Server connection lost. Logging out ...");
                 await logout();
 
@@ -386,13 +386,13 @@ function startConnectionMonitoring() {
                 }
             }
         }
-    }, PING_INTERVAL)
+    }, PING_INTERVAL);
 
     return healthCheckInterval;
 }
 
 let _connectionMonitorInterval: NodeJS.Timeout | null = null;
-    
+
 export function connectWebsocket() {
     if (!_token) {
         console.warn("[WS] No token — cannot connect");
@@ -428,7 +428,7 @@ export function connectWebsocket() {
         if (!_connectionMonitorInterval) {
             _connectionMonitorInterval = startConnectionMonitoring();
         }
-        
+
         // Start heartbeat timeout
         resetHeartbeatTimeout();
     };
@@ -452,7 +452,7 @@ export function connectWebsocket() {
                     addPopupToStore(message);
 
                     // Close the websocket connection
-                    try{
+                    try {
                         _websocket?.close();
                     } catch {}
 
@@ -468,10 +468,10 @@ export function connectWebsocket() {
                 }
 
                 // Handle heartbeat response from server
-                if ((parsed as any)?.type === 'heartbeat') {
+                if ((parsed as any)?.type === "heartbeat") {
                     console.log("[WS] Heartbeat received from server");
                     resetHeartbeatTimeout();
-                    
+
                     // Respond to heartbeat
                     try {
                         websocketSend({ type: "pong", timestamp: new Date().toISOString() });
@@ -533,9 +533,9 @@ export function connectWebsocket() {
         }
 
         // Server shutting down
-        if (e.code === 1001) {            
-            console.error('[WS] Connection closed: Server is shutting down.');
-            addPopupToStore('Server is shutting down.  Please log in again later.');
+        if (e.code === 1001) {
+            console.error("[WS] Connection closed: Server is shutting down.");
+            addPopupToStore("Server is shutting down.  Please log in again later.");
 
             logout().then(() => {
                 if (typeof window !== "undefined") {
@@ -545,9 +545,9 @@ export function connectWebsocket() {
         }
 
         // Abnormal closure - possible network issues
-        if (e.code === 1006){
-            console.error('[WS] Connection closed abnormally. Possible network issues.');
-            addPopupToStore('Connection lost due to network issues. Please check your connection.');
+        if (e.code === 1006) {
+            console.error("[WS] Connection closed abnormally. Possible network issues.");
+            addPopupToStore("Connection lost due to network issues. Please check your connection.");
 
             logout().then(() => {
                 if (typeof window !== "undefined") {
@@ -597,7 +597,7 @@ export function closeWebsocket() {
         clearInterval(_connectionMonitorInterval);
         _connectionMonitorInterval = null;
     }
-    
+
     try {
         _websocket?.close();
     } catch {
