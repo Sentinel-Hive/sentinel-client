@@ -6,7 +6,7 @@ import { useDatasets, useDatasetStore } from "@/store/datasetStore";
 import { formatSize } from "@/lib/utils";
 import { fetchDatasetContent } from "@/lib/dataHandler";
 import { toast } from "sonner";
-import { Download } from "lucide-react";
+import { Download, Eye, FolderSync } from "lucide-react";
 
 type LogRow = Log & {
     datasetId: number;
@@ -220,7 +220,7 @@ export default function Datasets() {
                 <span className="flex justify-end w-full">
                     <Button
                         size="lg"
-                        className="bg-yellow-500 text-lg m-1 text-black hover:bg-neutral-800"
+                        className="bg-yellow-500 text-lg m-1 text-black hover:bg-yellow-600"
                         onClick={() => loadAllDatasets()}
                     >
                         <Download />
@@ -267,15 +267,19 @@ export default function Datasets() {
                                         )}
                                     </div>
                                     <div className="flex justify-between items-center mt-3">
-                                        <Button size="sm" onClick={() => setViewerDataset(ds)}>
-                                            Inspect
+                                        <Button
+                                            className="hover:text-yellow-500 [&_svg]:h-6 [&_svg]:w-6"
+                                            size="sm"
+                                            onClick={() => setViewerDataset(ds)}
+                                        >
+                                            <Eye />
                                         </Button>
                                         {!ds.content && (
                                             <Button
-                                                size="sm"
+                                                className="hover:text-yellow-500 [&_svg]:h-6 [&_svg]:w-6"
                                                 onClick={() => loadDataset(ds.id, ds.path)}
                                             >
-                                                Load Dataset
+                                                <FolderSync />
                                             </Button>
                                         )}
                                     </div>
