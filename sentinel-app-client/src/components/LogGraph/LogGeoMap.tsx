@@ -5,59 +5,56 @@ import L from "leaflet";
 
 import { Log } from "@/types/types";
 
-// ---------- Inline Leaflet layout styles ----------
+import "leaflet/dist/leaflet.css";
+import "leaflet.markercluster";
+import "leaflet.markercluster/dist/MarkerCluster.css";
+import "leaflet.markercluster/dist/MarkerCluster.Default.css";
+import MarkerClusterGroup from "react-leaflet-markercluster";
+
+const createClusterCustomIcon = (cluster: any) => {
+    const count = cluster.getChildCount();
+
+    const size = count < 10 ? 26 : count < 50 ? 32 : count < 200 ? 40 : 48;
+
+    return L.divIcon({
+        html: `<span>${count}</span>`,
+        className: "log-ip-cluster-marker",
+        iconSize: [size, size],
+    });
+};
+
 const LeafletInlineStyles = () => (
     <style>
         {`
+    /* Optional: dark background while tiles load */
     .leaflet-container {
-      position: relative;
-      width: 100%;
-      height: 100%;
       background: #111827;
-      outline: 0;
-      overflow: hidden;
-      touch-action: none;
     }
 
-    .leaflet-pane,
-    .leaflet-tile-pane,
-    .leaflet-overlay-pane,
-    .leaflet-shadow-pane,
-    .leaflet-marker-pane,
-    .leaflet-tooltip-pane,
-    .leaflet-popup-pane,
-    .leaflet-map-pane {
-      position: absolute;
-      left: 0;
-      top: 0;
-    }
-
-    .leaflet-tile,
-    .leaflet-marker-icon,
-    .leaflet-shadow {
-      position: absolute;
-      user-select: none;
-      -webkit-user-drag: none;
-    }
-
-    .leaflet-tile {
-      width: 256px;
-      height: 256px;
-    }
-
-    .leaflet-container img.leaflet-tile,
-    .leaflet-container img.leaflet-image-layer {
-      max-width: none !important;
-    }
-
-    /* Custom pin style (DivIcon) */
     .log-ip-marker {
       width: 12px;
       height: 12px;
       border-radius: 9999px;
-      background-color: #facc15;  /* yellow */
-      border: 2px solid #92400e;  /* darker outline */
+      background-color: #facc15;
+      border: 2px solid #92400e;
       box-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+    }
+
+    .log-ip-cluster-marker {
+      border-radius: 9999px;
+      background: radial-gradient(circle at 30% 30%, #facc15, #b45309);
+      color: #111827;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      border: 2px solid #92400e;
+      box-shadow: 0 0 8px rgba(0, 0, 0, 0.9);
+    }
+
+    .log-ip-cluster-marker span {
+      font-size: 11px;
+      transform: translateY(1px);
     }
   `}
     </style>
@@ -90,7 +87,7 @@ type LogGeoMapProps = {
     logs: Log[];
 };
 
-const GEO_CACHE_KEY = "logGeoIpCache_v3";
+const GEO_CACHE_KEY = "logGeoIpCache_v4";
 let memoryCache: Record<
     string,
     { lat: number; lon: number; approximate: boolean; isPrivate: boolean }
@@ -133,12 +130,36 @@ const ipv4Regex = /(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])/; // simple IPv4 m
 const isPrivateIp = (ip: string): boolean => {
     const parts = ip.split(".").map((p) => parseInt(p, 10));
     if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return false;
-    const [a, b] = parts;
-    if (a === 10) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 127) return true;
-    if (a === 169 && b === 254) return true;
+    const [a, b, c, d] = parts;
+
+    // RFC1918 private ranges
+    if (a === 10) return true; // 10.0.0.0/8
+    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+    if (a === 192 && b === 168) return true; // 192.168.0.0/16
+
+    // Loopback
+    if (a === 127) return true; // 127.0.0.0/8
+
+    // Link-local
+    if (a === 169 && b === 254) return true; // 169.254.0.0/16
+
+    // Carrier-grade NAT
+    if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10
+
+    // Benchmarking
+    if (a === 198 && (b === 18 || b === 19)) return true; // 198.18.0.0/15
+
+    // Documentation / test networks (treat as internal)
+    if (a === 192 && b === 0 && c === 2) return true; // 192.0.2.0/24
+    if (a === 198 && b === 51 && c === 100) return true; // 198.51.100.0/24
+    if (a === 203 && b === 0 && c === 113) return true; // 203.0.113.0/24
+
+    // 0.0.0.0/8, broadcast, multicast, and other non-routable specials
+    if (a === 0) return true;
+    if (a === 255) return true; // 255.x.x.x
+    if (a >= 224 && a <= 239) return true; // multicast 224.0.0.0/4
+    if (a >= 240) return true; // reserved 240.0.0.0/4
+
     return false;
 };
 
@@ -204,66 +225,101 @@ const collectIpsFromObject = (obj: any): string[] => {
     return out;
 };
 
-// tiny deterministic jitter so multiple markers at same city don't overlap 100%
-const jitter = (ip: string, magnitude = 0.15): { dLat: number; dLon: number } => {
-    let hash = 0;
-    for (let i = 0; i < ip.length; i++) {
-        hash = (hash * 31 + ip.charCodeAt(i)) >>> 0;
-    }
-    const rand1 = (hash & 0xffff) / 0xffff; // [0,1]
-    const rand2 = ((hash >>> 16) & 0xffff) / 0xffff;
-
-    const dLat = (rand1 - 0.5) * magnitude; // e.g. ±0.075°
-    const dLon = (rand2 - 0.5) * magnitude;
-    return { dLat, dLon };
-};
-
-// real geolocation via ipapi.co latlong endpoint, plus approximate fallback for private IPs
 const lookupIpLocation = async (
     ip: string
 ): Promise<{ lat: number; lon: number; approximate: boolean; isPrivate: boolean } | null> => {
     const cache = loadCache();
     if (cache[ip]) return cache[ip];
 
-    const privateFlag = isPrivateIp(ip);
+    if (isPrivateIp(ip)) {
+        cache[ip] = { lat: 0, lon: 0, approximate: true, isPrivate: true };
+        saveCache(cache);
+        return null;
+    }
 
-    // For public IPs: attempt real geolocation
-    if (!privateFlag) {
+    // Validate + sanitize coordinates
+    const normalizeCoords = (lat: any, lon: any) => {
+        const nLat = Number(lat);
+        const nLon = Number(lon);
+
+        if (!Number.isFinite(nLat) || !Number.isFinite(nLon)) return null;
+
+        // reject null island, poles, and obviously wrong ranges
+        if (nLat === 0 && nLon === 0) return null;
+        if (nLat < -60 || nLat > 85) return null;
+        if (nLon < -180 || nLon > 180) return null;
+
+        return { lat: nLat, lon: nLon };
+    };
+
+    // Providers (ordered by reliability)
+    const providers: Array<() => Promise<{ lat: number; lon: number } | null>> = [
+        // 1. ipapi.co
+        async () => {
+            const r = await fetch(`https://ipapi.co/${ip}/json/`);
+            if (!r.ok) return null;
+            const j = await r.json();
+            if (j.error) return null;
+            return normalizeCoords(j.latitude, j.longitude);
+        },
+
+        // 2. ipwho.is
+        async () => {
+            const r = await fetch(`https://ipwho.is/${ip}?fields=success,latitude,longitude`);
+            if (!r.ok) return null;
+            const j = await r.json();
+            if (j.success === false) return null;
+            return normalizeCoords(j.latitude, j.longitude);
+        },
+
+        // 3. ipinfo.io
+        async () => {
+            const r = await fetch(`https://ipinfo.io/${ip}/geo`);
+            if (!r.ok) return null;
+            const j = await r.json();
+            if (!j.loc) return null;
+            const [lat, lon] = j.loc.split(",");
+            return normalizeCoords(lat, lon);
+        },
+
+        // 4. ipgeolocation.io
+        async () => {
+            const r = await fetch(`https://api.ipgeolocation.io/ipgeo?ip=${ip}`);
+            if (!r.ok) return null;
+            const j = await r.json();
+            // free tier may not give city, but lat/lng is often provided
+            return normalizeCoords(j.latitude, j.longitude);
+        },
+
+        // 5. ipstack (works even without key sometimes, but more reliable if you supply one)
+        async () => {
+            const r = await fetch(`http://api.ipstack.com/${ip}?output=json`);
+            if (!r.ok) return null;
+            const j = await r.json();
+            return normalizeCoords(j.latitude, j.longitude);
+        },
+    ];
+
+    for (const provider of providers) {
         try {
-            // Returns plain text "lat,lon"
-            const res = await fetch(`https://ipapi.co/${ip}/latlong/`);
-            if (res.ok) {
-                const txt = (await res.text()).trim();
-                const [latStr, lonStr] = txt.split(",");
-                const lat = Number(latStr);
-                const lon = Number(lonStr);
-                if (Number.isFinite(lat) && Number.isFinite(lon)) {
-                    const value = { lat, lon, approximate: false, isPrivate: false };
-                    cache[ip] = value;
-                    saveCache(cache);
-                    return value;
-                }
+            const coords = await provider();
+            if (coords) {
+                const value = {
+                    lat: coords.lat,
+                    lon: coords.lon,
+                    approximate: false,
+                    isPrivate: false,
+                };
+                cache[ip] = value;
+                saveCache(cache);
+                return value;
             }
         } catch {
-            // fall back to null for public IPs if geolocation fails
-            // (we don't want fake locations for public IPs if we care about accuracy)
-            return null;
+            // ignore individual provider failure
         }
     }
 
-    // For private IPs (or if you still want an approximate view):
-    const parts = ip.split(".").map((p) => Number(p));
-    while (parts.length < 4) parts.push(0);
-    const [a, b, c, d] = parts.map((n) => (Number.isFinite(n) && n >= 0 && n <= 255 ? n : 0));
-
-    const lat = (c / 255) * 140 - 70; // [-70, 70]
-    const hash = (a * 256 * 256 + b * 256 + d) % 65535;
-    const lon = (hash / 65535) * 360 - 180; // [-180, 180]
-
-    const value = { lat, lon, approximate: true, isPrivate: privateFlag };
-    cache[ip] = value;
-    saveCache(cache);
-    return value;
+    return null;
 };
 
 // Map size invalidation
@@ -304,7 +360,8 @@ const LogGeoMap = ({ logs }: LogGeoMapProps) => {
         const publicIps = allIps.filter((ip) => !isPrivateIp(ip));
         const privateIps = allIps.filter((ip) => isPrivateIp(ip));
 
-        return { uniqueIps: allIps, counts, publicIps, privateIps };
+        // Only public IPs are geolocated and plotted
+        return { uniqueIps: publicIps, counts, publicIps, privateIps };
     }, [logs]);
 
     useEffect(() => {
@@ -331,17 +388,15 @@ const LogGeoMap = ({ logs }: LogGeoMapProps) => {
                     const ip = batch[idx];
                     if (res.status === "fulfilled" && res.value) {
                         const { lat, lon, approximate, isPrivate } = res.value;
-                        const count = counts.get(ip) ?? 0;
 
-                        // apply small jitter so markers don't completely overlap
-                        const { dLat, dLon } = jitter(ip);
-                        const jitteredLat = lat + dLat;
-                        const jitteredLon = lon + dLon;
+                        if (isPrivate) return;
+
+                        const count = counts.get(ip) ?? 0;
 
                         allPoints.push({
                             ip,
-                            lat: jitteredLat,
-                            lon: jitteredLon,
+                            lat,
+                            lon,
                             count,
                             approximate,
                             isPrivate,
@@ -415,7 +470,7 @@ const LogGeoMap = ({ logs }: LogGeoMapProps) => {
                 center={center}
                 zoom={3}
                 minZoom={1}
-                maxZoom={8}
+                maxZoom={50}
                 style={{ width: "100%", height: "100%" }}
                 worldCopyJump
             >
@@ -425,34 +480,38 @@ const LogGeoMap = ({ logs }: LogGeoMapProps) => {
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 />
 
-                {points.map((p) => (
-                    <AnyMarker key={p.ip} position={[p.lat, p.lon]} icon={dotIcon}>
-                        <AnyPopup>
-                            <div className="text-xs space-y-0.5">
-                                <div>
-                                    <span className="font-semibold">IP:</span> {p.ip}
+                <MarkerClusterGroup
+                    chunkedLoading
+                    maxClusterRadius={45}
+                    iconCreateFunction={createClusterCustomIcon}
+                >
+                    {points.map((p) => (
+                        <AnyMarker key={p.ip} position={[p.lat, p.lon]} icon={dotIcon}>
+                            <AnyPopup>
+                                <div className="text-xs space-y-0.5">
+                                    <div>
+                                        <span className="font-semibold">IP:</span> {p.ip}
+                                    </div>
+                                    <div>
+                                        <span className="font-semibold">Logs:</span> {p.count}
+                                    </div>
+                                    <div>
+                                        <span className="font-semibold">Type:</span>{" "}
+                                        {p.isPrivate ? "private / internal" : "public"}
+                                    </div>
+                                    <div>
+                                        <span className="font-semibold">Location:</span>{" "}
+                                        {p.approximate ? "approximate" : "geocoded (ipwho.is)"}
+                                    </div>
+                                    <div>
+                                        <span className="font-semibold">Lat/Lon:</span>{" "}
+                                        {p.lat.toFixed(3)}, {p.lon.toFixed(3)}
+                                    </div>
                                 </div>
-                                <div>
-                                    <span className="font-semibold">Logs:</span> {p.count}
-                                </div>
-                                <div>
-                                    <span className="font-semibold">Type:</span>{" "}
-                                    {p.isPrivate ? "private / internal" : "public"}
-                                </div>
-                                <div>
-                                    <span className="font-semibold">Location:</span>{" "}
-                                    {p.approximate
-                                        ? "approximate (fallback)"
-                                        : "geocoded (ipapi.co lat/long)"}
-                                </div>
-                                <div>
-                                    <span className="font-semibold">Lat/Lon:</span>{" "}
-                                    {p.lat.toFixed(3)}, {p.lon.toFixed(3)}
-                                </div>
-                            </div>
-                        </AnyPopup>
-                    </AnyMarker>
-                ))}
+                            </AnyPopup>
+                        </AnyMarker>
+                    ))}
+                </MarkerClusterGroup>
             </AnyMapContainer>
 
             {/* Debug overlay */}
