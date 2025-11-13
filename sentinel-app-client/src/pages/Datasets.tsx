@@ -122,46 +122,52 @@ export default function Datasets() {
         let fallbackId = 1;
 
         // Try full JSON document
-
-        const parsed = JSON.parse(text) as JsonValue;
-        if (Array.isArray(parsed)) {
-            parsed.forEach((item) => {
-                if (isJsonObject(item)) {
-                    const log = coerceLogFromRaw(item, fallbackId++);
-                    rows.push({
-                        ...log,
-                        datasetId: dataset.id,
-                        datasetName: dataset.name,
-                        raw: item,
-                    });
-                }
-            });
-            if (rows.length > 0) return rows;
-        } else if (isJsonObject(parsed)) {
-            const log = coerceLogFromRaw(parsed, fallbackId++);
-            rows.push({
-                ...log,
-                datasetId: dataset.id,
-                datasetName: dataset.name,
-                raw: parsed,
-            });
-            return rows;
+        try {
+            const parsed = JSON.parse(text) as JsonValue;
+            if (Array.isArray(parsed)) {
+                parsed.forEach((item) => {
+                    if (isJsonObject(item)) {
+                        const log = coerceLogFromRaw(item, fallbackId++);
+                        rows.push({
+                            ...log,
+                            datasetId: dataset.id,
+                            datasetName: dataset.name,
+                            raw: item,
+                        });
+                    }
+                });
+                if (rows.length > 0) return rows;
+            } else if (isJsonObject(parsed)) {
+                const log = coerceLogFromRaw(parsed, fallbackId++);
+                rows.push({
+                    ...log,
+                    datasetId: dataset.id,
+                    datasetName: dataset.name,
+                    raw: parsed,
+                });
+                return rows;
+            }
+        } catch {
+            // DO nothing
         }
 
         const lines = text.split(/\r?\n/);
         for (const rawLine of lines) {
             const ln = rawLine.trim();
             if (!ln) continue;
-
-            const parsedLine = JSON.parse(ln) as JsonValue;
-            if (isJsonObject(parsedLine)) {
-                const log = coerceLogFromRaw(parsedLine, fallbackId++);
-                rows.push({
-                    ...log,
-                    datasetId: dataset.id,
-                    datasetName: dataset.name,
-                    raw: parsedLine,
-                });
+            try {
+                const parsedLine = JSON.parse(ln) as JsonValue;
+                if (isJsonObject(parsedLine)) {
+                    const log = coerceLogFromRaw(parsedLine, fallbackId++);
+                    rows.push({
+                        ...log,
+                        datasetId: dataset.id,
+                        datasetName: dataset.name,
+                        raw: parsedLine,
+                    });
+                }
+            } catch {
+                // DO nothing
             }
         }
 
@@ -177,13 +183,17 @@ export default function Datasets() {
     }, [datasets]);
 
     const loadDataset = async (id: number, path: string) => {
-        const res = await fetchDatasetContent(id, path);
+        try {
+            const res = await fetchDatasetContent(id, path);
 
-        if (res != null) {
-            updateDataset(id, {
-                content: res,
-            });
-            toast.success(`Successfully loaded content from dataset id:${id}`);
+            if (res != null) {
+                updateDataset(id, {
+                    content: res,
+                });
+                toast.success(`Successfully loaded content from dataset id:${id}`);
+            }
+        } catch (err) {
+            console.error("Failed to load dataset content", err);
         }
     };
 
