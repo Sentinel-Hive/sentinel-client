@@ -88,7 +88,7 @@ const Graphs = () => {
     const [isResizingGraph, setIsResizingGraph] = useState<string | null>(null);
 
     // Physics controls
-    const [centerStrength, setCenterStrength] = useState(0.05);
+    const [centerStrength, setCenterStrength] = useState(0.35);
     const [repelStrength, setRepelStrength] = useState(-100);
     const [linkStrength, setLinkStrength] = useState(1);
     const [linkDistance, setLinkDistance] = useState(30);

@@ -164,7 +164,7 @@ const ColorPicker = ({
     selectedCriteria,
     onCriteriaChange,
 }: ColorPickerProps) => {
-    const [showValues, setShowValues] = useState(true);
+    const [showValues, setShowValues] = useState(false);
 
     // When criteria changes, automatically add all values with predefined colors
     const handleCriteriaChange = (value: string) => {

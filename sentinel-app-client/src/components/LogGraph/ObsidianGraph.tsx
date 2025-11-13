@@ -37,7 +37,7 @@ const ObsidianGraph = ({
     colors,
     shapes,
     colorCriteria = "event_type",
-    centerStrength = 0.05,
+    centerStrength = 0.35,
     repelStrength = -100,
     linkStrength = 1,
     linkDistance = 30,
