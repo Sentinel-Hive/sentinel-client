@@ -71,6 +71,15 @@ export async function loadAllDatasets({
         }
     }
 
+    // Remove any datasets that no longer exist on the server
+    const fetchedIds = new Set(fetchedDatasets.map((d) => d.id));
+    existing.forEach((d) => {
+        if (!fetchedIds.has(d.id)) {
+            // This will also clear selection and cached logs for the dataset
+            store.removeDataset(d.id);
+        }
+    });
+
     return fetchedDatasets;
 }
 
@@ -113,7 +122,6 @@ export async function fetchDatasetContent(datasetId: number, path: string): Prom
 
     const body = await res.json();
     const fileData = body[0];
-    console.log(fileData);
 
     if (fileData == null) return null;
 
@@ -122,4 +130,28 @@ export async function fetchDatasetContent(datasetId: number, path: string): Prom
     }
 
     return JSON.stringify(fileData, null, 2);
+}
+
+export async function deleteDatasetOnServer(id: number): Promise<{ success?: boolean } | void> {
+    const res = await authFetch(`/data/${id}`, {
+        method: "DELETE",
+        headers: { Accept: "application/json" },
+    });
+
+    if (!res.ok) {
+        let detail = "";
+        try {
+            const j = await res.json();
+            detail = (j && (j as any).detail) || JSON.stringify(j);
+        } catch {
+            detail = await res.text();
+        }
+        throw new Error(`Delete failed (${res.status}): ${detail}`);
+    }
+
+    try {
+        return (await res.json()) as { success?: boolean };
+    } catch {
+        return { success: true };
+    }
 }

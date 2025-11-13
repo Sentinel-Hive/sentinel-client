@@ -2,6 +2,9 @@ export type Log = {
     id: string;
     message: string;
     type: string;
+    // Dataset origin (set by store when logs are parsed from a dataset)
+    datasetId?: number;
+    datasetName?: string;
     src_ip?: string;
     dest_ip?: string;
     user?: string;
@@ -44,9 +47,33 @@ export type DbDataset = {
     dataset_path: string;
     added_at: string;
 };
+
 export type ClientListResponse = {
     count: number;
     items: Array<{ record: DbDataset }>;
+};
+
+export enum RelationshipTypes {
+    IP_CONNECTION = "IP Connection",
+    USER_EVENT = "User Event",
+    APP_EVENT = "App Event",
+    HOST_EVENT = "Host Event",
+    SEVERITY_LEVEL = "Severity Level"
+}
+
+export type NodeData = {
+    id: string;
+    type: string;
+    value: string;
+    dataset: string;
+    details: Log;
+    isStarCenter?: boolean; // marks the center node when rendering star topology
+};
+
+export type LinkData = {
+    source: string;
+    target: string;
+    type: RelationshipTypes;
 };
 export type ClientOneResponse = { record: DbDataset };
 

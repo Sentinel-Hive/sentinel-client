@@ -17,7 +17,7 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { useDatasets, useDatasetStore } from "@/store/datasetStore";
-import { loadAllDatasets, postDatasetToServer } from "@/lib/dataHandler";
+import { loadAllDatasets, postDatasetToServer, deleteDatasetOnServer } from "@/lib/dataHandler";
 import { StagedDatasetList } from "./StagedDatasetList";
 import { formatSize } from "@/lib/utils";
 
@@ -267,14 +267,55 @@ export default function Dataset() {
     };
 
     const handleDeleteUploaded = (id: number) => {
-        removeDataset(id);
-        toast.warning(`Dataset ${id} Deleted`, {
-            description: "The dataset was removed from the live list.",
-        });
+        const ds = datasets.find((d) => d.id === id);
+        const name = ds?.name ?? String(id);
+
+        // Use a toast-based confirmation with explicit irreversible warning
+    const tid = toast.custom((t) => (
+            <div className="bg-neutral-900 border border-neutral-700 rounded-md p-3 text-sm max-w-md">
+                <div className="font-medium text-yellow-400 mb-1">Delete dataset permanently?</div>
+                <div className="text-neutral-200 mb-3">
+                    You are about to permanently delete <span className="font-semibold">{name}</span> (ID {id}).
+                    This action cannot be undone.
+                </div>
+                <div className="flex gap-2 justify-end">
+                    <button
+                        className="px-3 py-1 rounded bg-neutral-800 border border-neutral-700 hover:bg-neutral-700 text-neutral-200"
+                        onClick={() => toast.dismiss(t as any)}
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        className="px-3 py-1 rounded bg-red-600 hover:bg-red-700 text-white"
+                        onClick={async () => {
+                            try {
+                                // call backend first to ensure permanent deletion
+                                await deleteDatasetOnServer(id);
+                                // update local store
+                                removeDataset(id);
+                                toast.dismiss(t as any);
+                                toast.success("Dataset deleted", {
+                                    description: `${name} (ID ${id}) was permanently removed.`,
+                                });
+                            } catch (e) {
+                                toast.dismiss(t as any);
+                                toast.error("Delete failed", {
+                                    description: (e as Error)?.message || "Unable to delete dataset.",
+                                });
+                            }
+                        }}
+                    >
+                        Delete permanently
+                    </button>
+                </div>
+            </div>
+        ));
+
+        return tid;
     };
 
     return (
-        <div className="flex w-full h-full border-yellow-600 border p-5">
+        <div className="flex w-full max-h-[75vh] overflow-y-auto border-yellow-600 border p-5">
             <Card className="w-full border-none max-w-3xl mx-auto shadow-lg">
                 <CardHeader>
                     <CardTitle className="flex items-center space-x-2">
@@ -426,7 +467,7 @@ export default function Dataset() {
                                 <strong>Upload All</strong> to see them here.
                             </div>
                         ) : (
-                            <div className="rounded-md border">
+                            <div className="rounded-md border max-h-[65vh] overflow-y-auto">
                                 <Table>
                                     <TableHeader>
                                         <TableRow>

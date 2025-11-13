@@ -6,6 +6,7 @@ import Alerts from "./pages/Alerts";
 import Login from "./pages/Login";
 import Socket from "./pages/Socket";
 import Admin from "./pages/Admin";
+import Graphs from "./pages/Graphs";
 import { Toaster } from "sonner";
 import { useUser } from "./store/userStore";
 import { useEffect } from "react";
@@ -32,6 +33,7 @@ function App() {
 
                     <Route path="/login" element={<Login />} />
                     <Route path="/analytics" element={<Analytics />} />
+                    <Route path="/graphs" element={<Graphs />} />
                     <Route path="/datasets" element={<Datasets />} />
                     <Route path="/alerts" element={<Alerts />} />
                     <Route path="/socket" element={<Socket />} />
