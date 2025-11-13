@@ -1,8 +1,9 @@
-// src/pages/Graphs.tsx (or wherever this lives)
+// src/pages/Graphs.tsx
 import { useState, useEffect, useMemo } from "react";
 import { getLogField } from "@/lib/utils";
 import ColorPicker, { EventColor, ColorCriteria } from "../components/LogGraph/ColorPicker";
 import ObsidianGraph from "../components/LogGraph/ObsidianGraph";
+import ErrorGraph from "../components/LogGraph/ErrorGraph";
 import GraphControls from "../components/LogGraph/GraphControls";
 import AnalyticsHeader from "../components/AnalyticsHeader";
 import { ChevronsLeft, ChevronsRight } from "lucide-react";
@@ -23,6 +24,9 @@ const defaultGraphOptions: GraphOption[] = [
     { id: "error", name: "Error Graph", enabled: false, height: 300 },
 ];
 
+// Persist user's enabled graphs between navigations
+const GRAPH_OPTIONS_STORAGE_KEY = "sentinel.graphs.options.v1";
+
 const DEFAULT_SIDEBAR_WIDTH = 300; // Match analytics page width
 const MIN_SIDEBAR_WIDTH = 275; // Prevent panel from getting too small
 const MIN_GRAPH_WIDTH = 480; // Always leave room for the graph
@@ -34,14 +38,55 @@ const Graphs = () => {
     const [selectedRelationship, setSelectedRelationship] = useState(
         RelationshipTypes.IP_CONNECTION
     );
+
     const rawLogs = useSelectedLogs();
     const rawSelectedDatasets = useSelectedDatasets();
 
     const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
     const [isResizingSidebar, setIsResizingSidebar] = useState(false);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-    const [graphOptions, setGraphOptions] = useState<GraphOption[]>(defaultGraphOptions);
+
+    const [graphOptions, setGraphOptions] = useState<GraphOption[]>(() => {
+        try {
+            if (typeof window !== "undefined") {
+                const raw = localStorage.getItem(GRAPH_OPTIONS_STORAGE_KEY);
+                if (raw) {
+                    const saved: Array<Partial<GraphOption> & { id: string }> = JSON.parse(raw);
+                    // Merge saved with defaults by id to handle new/removed graphs gracefully
+                    const merged = defaultGraphOptions.map((def) => {
+                        const hit = saved.find((s) => s.id === def.id);
+                        if (!hit) return def;
+                        return {
+                            ...def,
+                            enabled: typeof hit.enabled === "boolean" ? hit.enabled : def.enabled,
+                            height: typeof hit.height === "number" ? hit.height : def.height,
+                        } as GraphOption;
+                    });
+                    return merged;
+                }
+            }
+        } catch {
+            // ignore
+        }
+        return defaultGraphOptions;
+    });
+
+    // Save options when they change
+    useEffect(() => {
+        try {
+            const payload = graphOptions.map(({ id, enabled, height }) => ({
+                id,
+                enabled,
+                height,
+            }));
+            localStorage.setItem(GRAPH_OPTIONS_STORAGE_KEY, JSON.stringify(payload));
+        } catch {
+            // ignore
+        }
+    }, [graphOptions]);
+
     const [isResizingGraph, setIsResizingGraph] = useState<string | null>(null);
+
     // Physics controls
     const [centerStrength, setCenterStrength] = useState(0.05);
     const [repelStrength, setRepelStrength] = useState(-100);
@@ -315,7 +360,7 @@ const Graphs = () => {
 
             {/* Main content under the sub-header */}
             <div className="fixed inset-x-0 top-[96px] bottom-0 bg-black text-white flex z-0">
-                {/* Left Panel - Completely Separate */}
+                {/* Left Panel */}
                 <div
                     className="h-full bg-neutral-800 overflow-hidden"
                     style={{
@@ -574,7 +619,7 @@ const Graphs = () => {
                             enabledCount > 1 ? "overflow-y-auto" : "overflow-hidden"
                         }`}
                     >
-                        <div className={`${enabledCount > 1 ? "pb-96" : ""} h-full space-y-1 p-1`}>
+                        <div className={`h-full space-y-1 p-1 ${enabledCount > 1 ? "pb-96" : ""}`}>
                             {graphOptions
                                 .filter((graph) => graph.enabled)
                                 .map((graph, index, enabledGraphs) => (
@@ -611,13 +656,10 @@ const Graphs = () => {
                                                 }
                                             />
                                         )}
+
                                         {graph.id === "geomap" && <LogGeoMap logs={graphLogs} />}
 
-                                        {graph.id === "error" && (
-                                            <div className="w-full h-full flex items-center justify-center text-neutral-400">
-                                                Error Graph Placeholder
-                                            </div>
-                                        )}
+                                        {graph.id === "error" && <ErrorGraph logs={graphLogs} />}
 
                                         {enabledGraphs.length > 1 && (
                                             <div
