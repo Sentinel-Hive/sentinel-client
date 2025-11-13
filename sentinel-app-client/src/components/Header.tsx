@@ -1,15 +1,6 @@
-// src/components/Header.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, NavLink } from "react-router-dom";
-import {
-    RotateCw,
-    Bell,
-    CircleUserRound,
-    User as UserIcon,
-    Settings,
-    LogOut,
-    Info,
-} from "lucide-react";
+import { RotateCw, Bell, Settings } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { toast } from "sonner";
 import AlertNotification, { Severity } from "./AlertNotification";
@@ -18,6 +9,7 @@ import { useUser, useUserStore } from "../store/userStore";
 import { logout } from "../lib/session";
 import { loadAllDatasets } from "@/lib/dataHandler";
 import { onPopupAdded } from "../lib/popupsStore";
+import { Button } from "./ui/button";
 
 const navLinkClass = "px-3 py-2 rounded-xl text-sm font-medium transition hover:bg-neutral-800/60";
 const activeClass = "bg-neutral-800";
@@ -28,7 +20,6 @@ export default function Header() {
     const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
     useEffect(() => {
-        // brief toast for any broadcast popup
         const off = onPopupAdded((p) => {
             toast(p.text, { duration: 2000 });
         });
@@ -70,8 +61,6 @@ export default function Header() {
     const setLoggingOut = useUserStore((s) => s.setLoggingOut);
     const setJustLoggedOut = useUserStore((s) => s.setJustLoggedOut);
 
-    const handleAccountClick = () => toast.info("Open Account settings (stub)");
-
     const handleLogoutClick = async () => {
         setLoggingOut(true);
         setJustLoggedOut(true);
@@ -101,7 +90,6 @@ export default function Header() {
         }
     };
 
-    const handleHelpClick = () => toast.info("Open Help (stub)");
     const handleAdminSettingsClick = () => {
         navigate("/admin");
     };
@@ -109,7 +97,6 @@ export default function Header() {
     return (
         <header className="sticky top-0 z-10 border-b border-neutral-800 bg-neutral-900/80 backdrop-blur">
             <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-                {/* Left: nav */}
                 <nav className="flex items-center gap-1">
                     <NavLink
                         to="/analytics"
@@ -146,18 +133,24 @@ export default function Header() {
                         </NavLink>
                     )}
                 </nav>
-
-                {/* Right: actions */}
+                <span></span>
                 <div className="flex items-center gap-2">
-                    <button
+                    <Button
+                        variant="ghost"
+                        className="hover:text-yellow-500 inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800/60 focus:outline-none focus:ring-2 focus:ring-neutral-700"
+                        onClick={() => handleAdminSettingsClick()}
+                    >
+                        <Settings />
+                    </Button>
+
+                    <Button
                         type="button"
                         onClick={() => handleSyncClick()}
                         aria-label="Refresh"
-                        className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800/60 focus:outline-none focus:ring-2 focus:ring-neutral-700"
+                        className="hover:text-yellow-500 inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800/60 focus:outline-none focus:ring-2 focus:ring-neutral-700"
                     >
                         <RotateCw className="h-4 w-4" />
-                        <span className="hidden sm:inline">Sync</span>
-                    </button>
+                    </Button>
 
                     {/* Notifications dropdown */}
                     <DropdownMenu.Root>
@@ -165,10 +158,10 @@ export default function Header() {
                             <button
                                 type="button"
                                 aria-label="Notifications"
-                                className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800/60 focus:outline-none focus:ring-2 focus:ring-neutral-700"
+                                className="hover:text-yellow-500 inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800/60 focus:outline-none focus:ring-2 focus:ring-neutral-700"
                             >
                                 <Bell className="h-4 w-4" />
-                                <span className="hidden sm:inline">Notifications</span>
+                                <span className="hidden sm:inline">{notifications.length}</span>
                                 {notifications.length > 0 && (
                                     <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[hsl(var(--primary))] px-1 text-[10px] font-bold text-[hsl(var(--primary-foreground))]">
                                         {notifications.length}
@@ -202,7 +195,7 @@ export default function Header() {
                                                         severity={n.severity}
                                                         timestamp={n.timestamp}
                                                         description={n.description}
-                                                        onDismiss={() => dismissOne(n.id)} // per-item dismiss
+                                                        onDismiss={() => dismissOne(n.id)}
                                                     />
                                                 </div>
                                             </DropdownMenu.Item>
@@ -215,7 +208,7 @@ export default function Header() {
                                     <DropdownMenu.Item
                                         onSelect={(e) => {
                                             e.preventDefault();
-                                            clearAll(); // Clear all notifications (local)
+                                            clearAll();
                                         }}
                                         className="flex cursor-pointer select-none items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800"
                                     >
@@ -233,68 +226,12 @@ export default function Header() {
                         </DropdownMenu.Portal>
                     </DropdownMenu.Root>
 
-                    {/* Profile dropdown */}
-                    <DropdownMenu.Root>
-                        <DropdownMenu.Trigger asChild>
-                            <button
-                                type="button"
-                                className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800/60 focus:outline-none focus:ring-2 focus:ring-neutral-700"
-                            >
-                                <CircleUserRound className="h-5 w-5" />
-                                <span className="hidden sm:inline">{user?.user_id}</span>
-                            </button>
-                        </DropdownMenu.Trigger>
-                        <DropdownMenu.Portal>
-                            <DropdownMenu.Content
-                                align="end"
-                                sideOffset={16}
-                                className="z-50 min-w-44 rounded-xl border border-neutral-800 bg-neutral-900 p-1 text-neutral-200 shadow-lg outline-none"
-                            >
-                                {user?.is_admin && (
-                                    <DropdownMenu.Item
-                                        onSelect={(e) => {
-                                            e.preventDefault();
-                                            handleAdminSettingsClick();
-                                        }}
-                                        className="flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800"
-                                    >
-                                        <Settings className="h-4 w-4" />
-                                        Admin Settings
-                                    </DropdownMenu.Item>
-                                )}
-                                <DropdownMenu.Item
-                                    onSelect={(e) => {
-                                        e.preventDefault();
-                                        handleAccountClick();
-                                    }}
-                                    className="flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800"
-                                >
-                                    <UserIcon className="h-4 w-4" /> Account
-                                </DropdownMenu.Item>
-                                <DropdownMenu.Item
-                                    onSelect={(e) => {
-                                        e.preventDefault();
-                                        handleLogoutClick();
-                                    }}
-                                    className="flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800"
-                                >
-                                    <LogOut className="h-4 w-4 text-red-500" />
-                                    <span className="text-red-500">Log Out</span>
-                                </DropdownMenu.Item>
-                                <DropdownMenu.Separator className="my-1 h-px bg-neutral-800" />
-
-                                <DropdownMenu.Item
-                                    onSelect={(e) => {
-                                        e.preventDefault();
-                                        handleHelpClick();
-                                    }}
-                                    className="flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-neutral-800"
-                                >
-                                    <Info className="h-4 w-4" /> Help
-                                </DropdownMenu.Item>
-                            </DropdownMenu.Content>
-                        </DropdownMenu.Portal>
-                    </DropdownMenu.Root>
+                    <Button
+                        className="bg-red-700 hover:bg-red-600"
+                        onClick={() => handleLogoutClick()}
+                    >
+                        Logout
+                    </Button>
                 </div>
             </div>
         </header>
