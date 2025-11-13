@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { getLogField } from "@/lib/utils";
 import ColorPicker, { EventColor, ColorCriteria } from "../components/LogGraph/ColorPicker";
 import ObsidianGraph from "../components/LogGraph/ObsidianGraph";
+import ErrorGraph from "../components/LogGraph/ErrorGraph";
 import GraphControls from "../components/LogGraph/GraphControls";
 import AnalyticsHeader from "../components/AnalyticsHeader";
 import { ChevronsLeft, ChevronsRight } from "lucide-react";
@@ -18,8 +19,11 @@ interface GraphOption {
 const defaultGraphOptions: GraphOption[] = [
   { id: 'obsidian', name: 'Node Graph', enabled: true, height: 400 },
   { id: 'geomap', name: 'Geographic Map', enabled: false, height: 300 },
-  { id: 'error', name: 'Error Graph', enabled: false, height: 300 }
+  { id: 'httpCodes', name: 'HTTP Code Frequency', enabled: false, height: 300 }
 ];
+
+// Persist user's enabled graphs between navigations
+const GRAPH_OPTIONS_STORAGE_KEY = 'sentinel.graphs.options.v1';
 
 const DEFAULT_SIDEBAR_WIDTH = 300; // Match analytics page width
 const MIN_SIDEBAR_WIDTH = 275; // Prevent panel from getting too small
@@ -36,7 +40,37 @@ const Graphs = () => {
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [graphOptions, setGraphOptions] = useState<GraphOption[]>(defaultGraphOptions);
+  const [graphOptions, setGraphOptions] = useState<GraphOption[]>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const raw = localStorage.getItem(GRAPH_OPTIONS_STORAGE_KEY);
+        if (raw) {
+          const saved: Array<Partial<GraphOption> & { id: string }> = JSON.parse(raw);
+          // Merge saved with defaults by id to handle new/removed graphs gracefully
+          const merged = defaultGraphOptions.map((def) => {
+            const hit = saved.find((s) => s.id === def.id);
+            if (!hit) return def;
+            return {
+              ...def,
+              enabled: typeof hit.enabled === 'boolean' ? hit.enabled : def.enabled,
+              height: typeof hit.height === 'number' ? hit.height : def.height,
+            } as GraphOption;
+          });
+          return merged;
+        }
+      }
+    } catch {}
+    return defaultGraphOptions;
+  });
+
+  // Save options when they change
+  useEffect(() => {
+    try {
+      const payload = graphOptions.map(({ id, enabled, height }) => ({ id, enabled, height }));
+      localStorage.setItem(GRAPH_OPTIONS_STORAGE_KEY, JSON.stringify(payload));
+    } catch {}
+  }, [graphOptions]);
+
   const [isResizingGraph, setIsResizingGraph] = useState<string | null>(null);
   // Physics controls
   const [centerStrength, setCenterStrength] = useState(0.05);
@@ -471,7 +505,7 @@ const Graphs = () => {
 
             {/* Graphs Area */}
             <div className={`flex-1 min-h-0 ${enabledCount > 1 ? 'overflow-y-auto' : 'overflow-hidden'}`}>
-              <div className={`${enabledCount > 1 ? 'pb-96' : ''} h-full space-y-1 p-1`}>
+              <div className={`h-full space-y-1 p-1 ${enabledCount > 1 ? 'pb-96' : 'pb-8'}`}>
                 {graphOptions.filter(graph => graph.enabled).map((graph, index, enabledGraphs) => (
                   <div 
                     key={graph.id}
@@ -505,10 +539,8 @@ const Graphs = () => {
                         Geographic Map Placeholder
                       </div>
                     )}
-                    {graph.id === 'error' && (
-                      <div className="w-full h-full flex items-center justify-center text-neutral-400">
-                        Error Graph Placeholder
-                      </div>
+                    {graph.id === 'httpCodes' && (
+                      <ErrorGraph logs={graphLogs} />
                     )}
                     
                     {/* Resize handle - show for all graphs when multiple are present */}
