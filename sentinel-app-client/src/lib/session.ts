@@ -8,6 +8,9 @@ let _baseURL =
     "http://127.0.0.1:5167";
 let _token: string | null = null;
 let userData: UserData | null = null;
+let _tokenExpiry: number | null = null;
+let _lastActivity: number = Date.now();
+let _idleCheckInterval: NodeJS.Timeout | null = null;
 
 // initial restore from localStorage
 if (typeof localStorage !== "undefined") {
@@ -64,6 +67,8 @@ function clearSessionStorage() {
         if (typeof localStorage !== "undefined") {
             localStorage.removeItem("svh.token");
             localStorage.removeItem("svh.user");
+            localStorage.removeItem("svh.token_expiry");
+            localStorage.removeItem("svh.last_activity");
         }
     } catch {
         // ignore
@@ -202,29 +207,43 @@ export async function login(opts: {
     ttl?: number;
 }) {
     setBaseURL(opts.baseUrl);
+    const ttl = opts.ttl ?? 3600;
     const res = await jsonFetch<UserData>("/auth/login", {
         method: "POST",
         body: JSON.stringify({
             user_id: opts.userId,
             password: opts.password,
-            ttl: opts.ttl ?? 3600,
+            ttl: ttl,
         }),
     });
     _token = res.token ?? null;
     userData = res;
+
+    // Calculate and store token expiration time
+    _tokenExpiry = Date.now() + (ttl * 1000);
+    _lastActivity = Date.now();
+
     try {
         if (typeof localStorage !== "undefined") {
             if (_token) {
                 localStorage.setItem("svh.token", _token);
+                localStorage.setItem("svh.token_expiry", _tokenExpiry.toString());
+                localStorage.setItem("svh.last_activity", _lastActivity.toString());
             } else {
                 localStorage.removeItem("svh.token");
+                localStorage.removeItem("svh.token_expiry");
+                localStorage.removeItem("svh.last_activity");
             }
             localStorage.setItem("svh.user", JSON.stringify(userData));
         }
     } catch {
         // ignore storage errors
     }
+
     attachLogoutOnClose();
+    startIdleTracking();
+    startTokenExpirationCheck();
+
     return res;
 }
 
@@ -236,8 +255,13 @@ export async function logout() {
     const tokenToSend = _token;
     const userToSend = userData;
 
+    // Stop all tracking intervals
+    stopIdleTracking();
+    stopTokenExpirationCheck();
+
     _token = null;
     userData = null;
+    _tokenExpiry = null;
     clearSessionStorage();
 
     if (!tokenToSend || !userToSend) {
@@ -254,6 +278,175 @@ export async function logout() {
     }
 
     return { response: true };
+}
+
+// Constants for idle and token tracking
+const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes in milliseconds
+const TOKEN_CHECK_INTERVAL = 30 * 1000; // Check every 30 seconds
+const IDLE_CHECK_INTERVAL = 60 * 1000; // Check idle every 60 seconds
+const TOKEN_REFRESH_THRESHOLD = 5 * 60 * 1000; // Refresh if less than 5 minutes remaining
+
+let _tokenCheckInterval: NodeJS.Timeout | null = null;
+
+/**
+ * Update last activity timestamp when user interacts with the app
+ */
+function updateActivity() {
+    _lastActivity = Date.now();
+    if (typeof localStorage !== "undefined") {
+        try {
+            localStorage.setItem("svh.last_activity", _lastActivity.toString());
+        } catch {
+            // ignore storage errors
+        }
+    }
+}
+
+/**
+ * Start tracking user idle time and automatically logout after 5 minutes of inactivity
+ */
+function startIdleTracking() {
+    // Clear any existing interval
+    if (_idleCheckInterval) {
+        clearInterval(_idleCheckInterval);
+    }
+
+    // Set up activity listeners
+    if (typeof window !== "undefined") {
+        const events = ["mousedown", "keydown", "scroll", "touchstart", "click"];
+        events.forEach((event) => {
+            window.addEventListener(event, updateActivity, { passive: true });
+        });
+    }
+
+    // Check idle status periodically
+    _idleCheckInterval = setInterval(() => {
+        const idleTime = Date.now() - _lastActivity;
+
+        if (idleTime >= IDLE_TIMEOUT) {
+            console.log("[SESSION] Idle timeout reached - logging out");
+            addPopupToStore("You have been logged out due to inactivity.");
+
+            // Stop tracking before logout
+            stopIdleTracking();
+            stopTokenExpirationCheck();
+
+            logout().then(() => {
+                // Navigation handled by App component when user store is cleared
+            });
+        }
+    }, IDLE_CHECK_INTERVAL);
+}
+
+/**
+ * Stop tracking user idle time
+ */
+function stopIdleTracking() {
+    if (_idleCheckInterval) {
+        clearInterval(_idleCheckInterval);
+        _idleCheckInterval = null;
+    }
+
+    // Remove activity listeners
+    if (typeof window !== "undefined") {
+        const events = ["mousedown", "keydown", "scroll", "touchstart", "click"];
+        events.forEach((event) => {
+            window.removeEventListener(event, updateActivity);
+        });
+    }
+}
+
+/**
+ * Start checking token expiration and automatically refresh or logout
+ */
+function startTokenExpirationCheck() {
+    // Clear any existing interval
+    if (_tokenCheckInterval) {
+        clearInterval(_tokenCheckInterval);
+    }
+
+    _tokenCheckInterval = setInterval(async () => {
+        if (!_tokenExpiry) return;
+
+        const timeUntilExpiry = _tokenExpiry - Date.now();
+
+        // Token has expired
+        if (timeUntilExpiry <= 0) {
+            console.log("[SESSION] Token expired - logging out");
+            addPopupToStore("Your session has expired. Please log in again.");
+
+            stopTokenExpirationCheck();
+            stopIdleTracking();
+
+            await logout();
+            return;
+        }
+
+        // Token is about to expire - attempt refresh
+        if (timeUntilExpiry <= TOKEN_REFRESH_THRESHOLD) {
+            console.log("[SESSION] Token expiring soon - attempting refresh");
+            const refreshed = await attemptTokenRefresh();
+
+            if (!refreshed) {
+                console.log("[SESSION] Token refresh failed - logging out");
+                addPopupToStore("Unable to refresh your session. Please log in again.");
+
+                stopTokenExpirationCheck();
+                stopIdleTracking();
+
+                await logout();
+            }
+        }
+    }, TOKEN_CHECK_INTERVAL);
+}
+
+/**
+ * Stop checking token expiration
+ */
+function stopTokenExpirationCheck() {
+    if (_tokenCheckInterval) {
+        clearInterval(_tokenCheckInterval);
+        _tokenCheckInterval = null;
+    }
+}
+
+/**
+ * Attempt to refresh the authentication token
+ */
+async function attemptTokenRefresh(): Promise<boolean> {
+    if (!_token) return false;
+
+    try {
+        const response = await authFetch("/auth/refresh", {
+            method: "POST",
+        });
+
+        if (!response.ok) {
+            console.error("[SESSION] Token refresh failed:", response.status);
+            return false;
+        }
+
+        const data = await response.json() as { token: string; expires_in: number };
+
+        if (data.token) {
+            _token = data.token;
+            _tokenExpiry = Date.now() + (data.expires_in * 1000);
+
+            // Update localStorage
+            if (typeof localStorage !== "undefined") {
+                localStorage.setItem("svh.token", _token);
+                localStorage.setItem("svh.token_expiry", _tokenExpiry.toString());
+            }
+
+            console.log("[SESSION] Token refreshed successfully");
+            return true;
+        }
+
+        return false;
+    } catch (err) {
+        console.error("[SESSION] Token refresh error:", err);
+        return false;
+    }
 }
 
 let _closeHookAttached = false;
@@ -336,6 +529,10 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 function isAlertMessage(v: unknown): v is AlertType {
     return isRecord(v) && v["type"] === "alert";
+}
+
+function isPopupMessage(v: unknown): v is PopupMessage {
+    return isRecord(v) && v["type"] === "popup";
 }
 
 function resetHeartbeatTimeout() {
