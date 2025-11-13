@@ -443,6 +443,30 @@ export function connectWebsocket() {
                 const parsed = JSON.parse(ev.data) as ServerMessage;
                 delivered = parsed;
 
+                // Handle server shutdown notification
+                if ((parsed as any)?.type === "server_shutdown") {
+                    console.error("[WS] Server is shutting down");
+                    const message = (parsed as any)?.message || "Server is shutting down";
+
+                    // Show notification to user
+                    addPopupToStore(message);
+
+                    // Close the websocket connection
+                    try{
+                        _websocket?.close();
+                    } catch {}
+
+                    // Force logout
+                    setTimeout(async () => {
+                        await logout();
+                        if (typeof window !== "undefined") {
+                            window.location.href = "/login?reason=server_shutdown";
+                        }
+                    }, 2000);
+
+                    return;
+                }
+
                 // Handle heartbeat response from server
                 if ((parsed as any)?.type === 'heartbeat') {
                     console.log("[WS] Heartbeat received from server");
@@ -504,6 +528,30 @@ export function connectWebsocket() {
             logout().then(() => {
                 if (typeof window !== "undefined") {
                     window.location.href = "/login";
+                }
+            });
+        }
+
+        // Server shutting down
+        if (e.code === 1001) {            
+            console.error('[WS] Connection closed: Server is shutting down.');
+            addPopupToStore('Server is shutting down.  Please log in again later.');
+
+            logout().then(() => {
+                if (typeof window !== "undefined") {
+                    window.location.href = "/login?reason=server_shutdown";
+                }
+            });
+        }
+
+        // Abnormal closure - possible network issues
+        if (e.code === 1006){
+            console.error('[WS] Connection closed abnormally. Possible network issues.');
+            addPopupToStore('Connection lost due to network issues. Please check your connection.');
+
+            logout().then(() => {
+                if (typeof window !== "undefined") {
+                    window.location.href = "/login?reason=network_issue";
                 }
             });
         }
