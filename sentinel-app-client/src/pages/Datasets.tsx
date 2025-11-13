@@ -220,7 +220,7 @@ export default function Datasets() {
                 <span className="flex justify-end w-full">
                     <Button
                         size="lg"
-                        className="border border-yellow-400 text-lg m-1"
+                        className="bg-yellow-500 text-lg m-1 text-black hover:bg-neutral-800"
                         onClick={() => loadAllDatasets()}
                     >
                         <Download />
@@ -240,7 +240,7 @@ export default function Datasets() {
                             return (
                                 <div
                                     key={ds.id}
-                                    className="p-4 border border-yellow-400 rounded-lg bg-[hsl(var(--bg))] flex flex-col justify-between"
+                                    className="p-4 border border-yellow-400 bg-neutral-800 rounded-lg bg-[hsl(var(--bg))] flex flex-col justify-between"
                                 >
                                     <div>
                                         <div className="font-semibold truncate mb-1">{ds.name}</div>
