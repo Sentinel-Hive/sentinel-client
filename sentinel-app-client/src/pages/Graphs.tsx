@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { getLogField } from "@/lib/utils";
 import ColorPicker, { EventColor, ColorCriteria } from "../components/LogGraph/ColorPicker";
 import ObsidianGraph from "../components/LogGraph/ObsidianGraph";
 import GraphControls from "../components/LogGraph/GraphControls";
@@ -29,8 +30,8 @@ const Graphs = () => {
   const [eventColors, setEventColors] = useState<EventColor[]>([]);
   const [colorCriteria, setColorCriteria] = useState<ColorCriteria>('event_type');
   const [selectedRelationship, setSelectedRelationship] = useState(RelationshipTypes.IP_CONNECTION);
-  const logs = useSelectedLogs();
-  const selectedDatasets = useSelectedDatasets();
+  const rawLogs = useSelectedLogs();
+  const rawSelectedDatasets = useSelectedDatasets();
   
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
@@ -42,7 +43,30 @@ const Graphs = () => {
   const [repelStrength, setRepelStrength] = useState(-100);
   const [linkStrength, setLinkStrength] = useState(1);
   const [linkDistance, setLinkDistance] = useState(30);
-  
+
+  const logs = useMemo(
+    () => (Array.isArray(rawLogs) ? rawLogs : []),
+    [rawLogs]
+  );
+
+  const selectedDatasets = useMemo(
+    () => (Array.isArray(rawSelectedDatasets) ? rawSelectedDatasets : []),
+    [rawSelectedDatasets]
+  );
+
+  const graphLogs = useMemo(
+  () =>
+    logs.map((log, index) => {
+      const safe = (log ?? {}) as any;
+      return {
+        ...safe,
+        id: safe.id || `log-${index}`,
+        type: safe.type || safe.event_type || "unknown",
+      };
+    }),
+  [logs]
+  );
+
   const handleColorChange = (eventType: string, color: string) => {
     setEventColors(colors =>
       colors.map(c =>
@@ -59,7 +83,7 @@ const Graphs = () => {
     setEventColors(colors => [...colors, { eventType, color }]);
   };
 
-  // Get available values for each criteria type from selected datasets
+  // Get available values for each criteria type from selected datasets (robust field parsing)
   const availableValues = useMemo(() => {
     const values = {
       event_type: new Set<string>(),
@@ -67,24 +91,18 @@ const Graphs = () => {
       app_type: new Set<string>(),
       src_ip: new Set<string>(),
       dest_ip: new Set<string>()
+    } as const;
+
+    const addIf = (set: Set<string>, v?: string) => {
+      if (v && String(v).trim().length > 0) set.add(String(v));
     };
-    
+
     logs.forEach(log => {
-      // Event types (prefer evt_type/event_type, not generic type)
-      const evt = (log as any).evt_type || log.event_type;
-      if (evt) values.event_type.add(evt);
-      
-      // Severity levels
-      if (log.severity) values.severity.add(log.severity);
-      
-      // Application types
-      if ((log as any).app) values.app_type.add((log as any).app);
-      if ((log as any).appDisplayName) values.app_type.add((log as any).appDisplayName);
-      if ((log as any).resourceDisplayName) values.app_type.add((log as any).resourceDisplayName);
-      
-      // IP addresses
-      if (log.src_ip) values.src_ip.add(log.src_ip);
-      if (log.dest_ip) values.dest_ip.add(log.dest_ip);
+      addIf(values.event_type, getLogField(log, 'event_type'));
+      addIf(values.severity, getLogField(log, 'severity'));
+      addIf(values.app_type, getLogField(log, 'app'));
+      addIf(values.src_ip, getLogField(log, 'src_ip'));
+      addIf(values.dest_ip, getLogField(log, 'dest_ip'));
     });
 
     return {
@@ -467,11 +485,7 @@ const Graphs = () => {
                     {/* Placeholder content for each graph type */}
                     {graph.id === 'obsidian' && (
                       <ObsidianGraph
-                        logs={logs.map((log, index) => ({
-                          ...log,
-                          id: log.id || `log-${index}`,
-                          type: log.type || log.event_type || 'unknown'
-                        }))}
+                        logs={graphLogs}
                         selectedRelationship={selectedRelationship}
                         colors={Object.fromEntries(eventColors.map(c => [c.eventType, c.color]))}
                         colorCriteria={colorCriteria}

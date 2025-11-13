@@ -20,6 +20,7 @@ import {
     useSelectedLogs,
     useDatasetStore,
 } from "@/store/datasetStore";
+import { fetchDatasetContent } from "@/lib/dataHandler";
 import { Checkbox } from "../components/ui/checkbox";
 import {
     getLogField,
@@ -370,6 +371,29 @@ export default function Analytics() {
         const clearSel = useDatasetStore.getState().clearSelectedDatasetIds;
         clearSel();
     };
+
+    // Lazy-load dataset files when a dataset is selected so logs populate
+    useEffect(() => {
+        if (selectedDatasets.length === 0) return;
+        const update = useDatasetStore.getState().updateDataset;
+        const loaded = new Set<number>();
+        (async () => {
+            for (const ds of selectedDatasets) {
+                if (!ds || loaded.has(ds.id)) continue;
+                loaded.add(ds.id);
+                if (!ds.path) continue;
+                try {
+                    const content = await fetchDatasetContent(ds.id, ds.path);
+                    if (content) {
+                        // This will also refresh logsCache for this dataset
+                        update(ds.id, { content });
+                    }
+                } catch (e) {
+                    console.error("Failed to fetch dataset content for", ds.id, e);
+                }
+            }
+        })();
+    }, [selectedDatasets]);
 
     return (
         <>

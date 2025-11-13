@@ -3,19 +3,93 @@ import { twMerge } from "tailwind-merge";
 import { DatasetItem, JsonValue, Log } from "@/types/types";
 
 export function getLogField(log: Log, field: string): string {
+    // Helpers to extract from raw with generous synonyms and a few nested patterns
+    const fromRaw = (keys: string[]): string | undefined => {
+        if (!log.raw) return undefined;
+        const raw: any = log.raw as any;
+        for (const k of keys) {
+            if (k.includes('.')) {
+                // support simple nested paths like 'source.ip'
+                const [a, b] = k.split('.') as [string, string];
+                const v = raw?.[a]?.[b];
+                if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean')
+                    return String(v);
+            } else if (k in raw) {
+                const v = raw[k];
+                if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean')
+                    return String(v);
+            }
+        }
+        return undefined;
+    };
+
     switch (field) {
-        case "src_ip":
-            return log.src_ip ?? "";
-        case "dest_ip":
-            return log.dest_ip ?? "";
+        case "src_ip": {
+            // Common variants: src_ip, ipAddress (AAD), client_ip, source_ip, source.ip
+            return (
+                log.src_ip ||
+                (log as any).ipAddress ||
+                fromRaw(["src_ip", "source_ip", "client_ip", "ip", "sourceIp", "source.ip"]) ||
+                ""
+            );
+        }
+        case "dest_ip": {
+            // Common variants: dest_ip, dest, destination, dst_ip, destinationIp, destinationAddress, destination.ip
+            return (
+                log.dest_ip ||
+                (log as any).dest ||
+                fromRaw([
+                    "dest_ip",
+                    "dest",
+                    "destination",
+                    "dst_ip",
+                    "destinationIp",
+                    "destination_ip",
+                    "destinationAddress",
+                    "destination.ip",
+                    "target.ip",
+                ]) ||
+                ""
+            );
+        }
         case "user":
-            return log.user ?? "";
-        case "event_type":
-            return log.event_type ?? "";
-        case "severity":
-            return log.severity ?? "";
-        case "app":
-            return log.app ?? "";
+            return (
+                log.user ||
+                (log as any).userPrincipalName ||
+                fromRaw(["user", "userPrincipalName", "principalName", "actor.user", "username"]) ||
+                ""
+            );
+        case "event_type": {
+            // Prefer specific event types over generic 'type'
+            return (
+                log.event_type ||
+                (log as any).evt_type ||
+                (log as any).eventtype ||
+                (log as any).eventType ||
+                fromRaw(["event_type", "evt_type", "eventtype", "eventType", "operationName"]) ||
+                (log as any).type ||
+                ""
+            );
+        }
+        case "severity": {
+            // Severity / risk or level style fields
+            return (
+                log.severity ||
+                (log as any).riskLevelDuringSignIn ||
+                fromRaw(["severity", "level", "riskLevel", "severityLevel"]) ||
+                ""
+            );
+        }
+        case "app": {
+            // Application name/type
+            return (
+                log.app ||
+                (log as any).appDisplayName ||
+                (log as any).resourceDisplayName ||
+                fromRaw(["app", "appDisplayName", "resourceDisplayName", "application", "service.name"]) ||
+                ""
+            );
+        }
         case "dest_port":
             return log.dest_port ?? "";
         case "src_port":

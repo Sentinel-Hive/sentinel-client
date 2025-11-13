@@ -110,6 +110,37 @@ const ObsidianGraph = ({
     simulation.alpha(0.2).restart();
   }, [dimensions.width, dimensions.height, simulation, centerStrength]);
 
+    useEffect(() => {
+    const handle = () => {
+      const el = containerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      setDimensions({
+        width: rect.width,
+        height: rect.height
+      });
+    };
+
+    window.addEventListener("resize", handle);
+    return () => window.removeEventListener("resize", handle);
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      const el = containerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+
+      if (rect.width !== dimsRef.current.width ||
+          rect.height !== dimsRef.current.height) {
+        setDimensions({ width: rect.width, height: rect.height });
+      }
+    }, 150); // small polling
+
+    return () => clearInterval(id);
+  }, []);
+
+
   // Also update the SVG's width/height attributes to the latest dimensions
   useEffect(() => {
     const el = svgRef.current;
@@ -553,12 +584,21 @@ useLayoutEffect(() => {
       newSimulation.on("tick", () => {
         // Keep nodes inside the viewport bounds
         const { width: curW, height: curH } = dimsRef.current;
+        let kicked = false;
         nodes.forEach((nd: any) => {
           if (nd.x == null || nd.y == null) return;
           const rr = nd.isStarCenter ? centerRadius : baseRadius;
+
+          const beforeX = nd.x;
+          const beforeY = nd.y;
+
           nd.x = Math.max(rr, Math.min(curW - rr, nd.x));
           nd.y = Math.max(rr, Math.min(curH - rr, nd.y));
+
+          if (beforeX !== nd.x || beforeY !== nd.y) kicked = true;
         });
+
+        if (kicked) newSimulation.alpha(0.3);
 
         link
           .attr('x1', (d: any) => d.source.x)
