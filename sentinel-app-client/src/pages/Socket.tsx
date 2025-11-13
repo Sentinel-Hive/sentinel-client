@@ -33,6 +33,9 @@ export default function Socket() {
     const [description, setDescription] = useState("This is a test alert from Dev page");
     const [tags, setTags] = useState("dev, test");
 
+    const [source, setSource] = useState("dev");
+    const [adminsOnly, setAdminsOnly] = useState(false);
+
     const [popup, setPopup] = useState<string | null>(null);
 
     useEffect(() => {
@@ -68,12 +71,13 @@ export default function Socket() {
 
     function sendTestAlert() {
         websocketSend({
-            type: "dev_alert",
+            type: "dev_alert", // backend requires this
             title,
             severity,
-            source: "dev",
+            source,
             description,
             tags: parseTags(tags),
+            admin_only: adminsOnly,
         });
     }
 
@@ -95,8 +99,10 @@ export default function Socket() {
                 </button>
             </div>
 
+            {/* POPUP SECTION */}
             <fieldset style={{ border: "1px solid #333", borderRadius: 12, padding: 16 }}>
                 <legend style={{ padding: "0 8px" }}>Send Test Popup</legend>
+
                 <label style={{ display: "grid", gap: 4 }}>
                     <span>Popup text</span>
                     <input
@@ -111,6 +117,7 @@ export default function Socket() {
                         }}
                     />
                 </label>
+
                 <div style={{ marginTop: 8 }}>
                     <button onClick={sendTestPopup} disabled={!wsReady}>
                         Send Test Popup
@@ -118,6 +125,7 @@ export default function Socket() {
                 </div>
             </fieldset>
 
+            {/* ALERT SECTION */}
             <fieldset style={{ border: "1px solid #333", borderRadius: 12, padding: 16 }}>
                 <legend style={{ padding: "0 8px" }}>Send Test Alert</legend>
 
@@ -178,6 +186,38 @@ export default function Socket() {
                         />
                     </label>
                 </div>
+
+                <label style={{ display: "grid", gap: 4, marginTop: 8 }}>
+                    <span>Source</span>
+                    <input
+                        value={source}
+                        onChange={(e) => setSource(e.target.value)}
+                        placeholder="dev"
+                        style={{
+                            padding: 8,
+                            background: "#1f1f1f",
+                            border: "1px solid #444",
+                            color: "#fff",
+                        }}
+                    />
+                </label>
+
+                <label
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        marginTop: 8,
+                        fontSize: 14,
+                    }}
+                >
+                    <input
+                        type="checkbox"
+                        checked={adminsOnly}
+                        onChange={(e) => setAdminsOnly(e.target.checked)}
+                    />
+                    <span>Broadcast to {adminsOnly ? "admins only" : "everyone"}</span>
+                </label>
 
                 <label style={{ display: "grid", gap: 4, marginTop: 8 }}>
                     <span>Description</span>
