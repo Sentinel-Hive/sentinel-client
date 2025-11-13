@@ -77,11 +77,11 @@ export const StagedDatasetList = React.memo(function StagedDatasetList({
                     <div className="flex items-center gap-2 min-w-0">
                         <span className="truncate font-medium">{it.name}</span>
                         <span className="text-xs text-muted-foreground flex-shrink-0">
-                            {formatSize(it.size)}
+                            {it.size ? formatSize(it.size) : "???"}
                         </span>
                         <span className="text-xs text-muted-foreground truncate hidden sm:block">
                             • {isStaged ? "Staged" : "Uploaded"}:{" "}
-                            {new Date(it.updatedAt).toLocaleDateString()}
+                            {it.updatedAt ? new Date(it.updatedAt).toLocaleDateString() : "???"}
                         </span>
                     </div>
                 )}

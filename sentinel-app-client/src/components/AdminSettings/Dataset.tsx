@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Upload, FileText, CheckCircle, AlertTriangle, Trash2 } from "lucide-react";
+import { Upload, FileText, CheckCircle, AlertTriangle, Trash2, Loader } from "lucide-react";
 import { DatasetItem } from "@/types/types";
 import { toast } from "sonner";
 import {
@@ -19,16 +19,7 @@ import {
 import { useDatasets, useDatasetStore } from "@/store/datasetStore";
 import { loadAllDatasets, postDatasetToServer } from "@/lib/dataHandler";
 import { StagedDatasetList } from "./StagedDatasetList";
-
-const formatSize = (sizeInBytes: number) => {
-    if (sizeInBytes < 1024) {
-        return `${sizeInBytes} B`;
-    } else if (sizeInBytes < 1024 * 1024) {
-        return `${(sizeInBytes / 1024).toFixed(1)} KB`;
-    } else {
-        return `${(sizeInBytes / (1024 * 1024)).toFixed(1)} MB`;
-    }
-};
+import { formatSize } from "@/lib/utils";
 
 export default function Dataset() {
     const datasets = useDatasets();
@@ -45,6 +36,8 @@ export default function Dataset() {
 
     const [editingId, setEditingId] = useState<number | null>(null);
     const [editValue, setEditValue] = useState<string>("");
+
+    const [isBulkUploading, setIsBulkUploading] = useState(false);
 
     const hasUnsaved = stagedItems.length > 0;
 
@@ -63,9 +56,39 @@ export default function Dataset() {
             await loadAllDatasets();
         };
         loadData();
+        const interval = setInterval(loadData, 10000);
+        return () => clearInterval(interval);
     }, []);
     const isSaving = uploadStatus.startsWith("Saving");
     const humanCount = useMemo(() => String(selectedFiles.length || 0), [selectedFiles.length]);
+
+    const validateJsonLike = (text: string, filename: string) => {
+        try {
+            JSON.parse(text);
+            return;
+        } catch {
+            // do nothing
+        }
+
+        const lines = text
+            .split(/\r?\n/)
+            .map((l) => l.trim())
+            .filter((l) => l.length > 0);
+
+        if (lines.length === 0) {
+            throw new Error(`File "${filename}" does not contain any JSON content.`);
+        }
+
+        try {
+            for (const line of lines) {
+                JSON.parse(line);
+            }
+        } catch {
+            throw new Error(
+                `File "${filename}" is not valid JSON, JSONL, or NDJSON. Each non-empty line must be valid JSON.`
+            );
+        }
+    };
 
     const nextTempId = React.useCallback(() => {
         let candidate: number;
@@ -79,9 +102,15 @@ export default function Dataset() {
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const fileList = event.target.files;
         if (!fileList) return;
-        const files: File[] = Array.from(fileList).filter(
-            (file) => file.type === "application/json" || file.name.toLowerCase().endsWith(".json")
-        );
+
+        const files: File[] = Array.from(fileList).filter((file) => {
+            const lower = file.name.toLowerCase();
+            if (lower.endsWith(".json") || lower.endsWith(".jsonl") || lower.endsWith(".ndjson")) {
+                return true;
+            }
+            return file.type === "application/json";
+        });
+
         setSelectedFiles(files);
         setUploadStatus("");
         setIsError(false);
@@ -123,17 +152,51 @@ export default function Dataset() {
             toast.success("Uploaded", {
                 description: `"${itemToUpload.name}" was uploaded${result?.id ? ` (id: ${result.id})` : ""}.`,
             });
+            return true;
         } catch (e) {
             const msg = (e as Error)?.message || "Upload failed";
             toast.error("Upload failed", { description: msg });
+            return false;
         } finally {
             setUploadingId(null);
         }
     };
 
+    const handleUploadAllClick = async () => {
+        if (stagedItems.length === 0 || isBulkUploading) return;
+
+        setIsBulkUploading(true);
+
+        const ids = stagedItems.map((i) => i.id);
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const id of ids) {
+            const ok = await handleUploadClick(id);
+            if (ok) successCount++;
+            else failCount++;
+        }
+
+        setIsBulkUploading(false);
+
+        if (successCount && !failCount) {
+            toast.success("All staged datasets uploaded", {
+                description: `${successCount} ${successCount === 1 ? "item" : "items"} uploaded successfully.`,
+            });
+        } else if (successCount && failCount) {
+            toast.warning("Upload completed with some errors", {
+                description: `${successCount} succeeded, ${failCount} failed.`,
+            });
+        } else {
+            toast.error("No datasets were uploaded", {
+                description: "Every upload attempt failed.",
+            });
+        }
+    };
+
     const handleStageData = async () => {
         if (selectedFiles.length === 0) {
-            setUploadStatus("Please select one or more JSON files.");
+            setUploadStatus("Please select one or more JSON/JSONL/NDJSON files.");
             setIsError(true);
             return;
         }
@@ -145,15 +208,12 @@ export default function Dataset() {
             const newItems: DatasetItem[] = [];
             for (const f of selectedFiles) {
                 const text = await f.text();
-                try {
-                    JSON.parse(text);
-                } catch {
-                    throw new Error(`File "${f.name}" is not valid JSON.`);
-                }
+
+                validateJsonLike(text, f.name);
 
                 newItems.push({
                     id: nextTempId(),
-                    name: f.name.replace(/\.json$/i, ""),
+                    name: f.name.replace(/\.(json|jsonl|ndjson)$/i, ""),
                     path: "",
                     size: f.size,
                     lastModified: f.lastModified,
@@ -237,7 +297,7 @@ export default function Dataset() {
                         <Input
                             id="json-files"
                             type="file"
-                            accept=".json, .jsonl, .ndjson,application/json"
+                            accept=".json, .jsonl, .ndjson"
                             multiple
                             onChange={handleFileChange}
                             className="flex-1"
@@ -301,12 +361,27 @@ export default function Dataset() {
                                 Staged Datasets
                             </h3>
                             <Button
-                                onClick={() => toast.info("Work In Progress")}
-                                disabled={stagedItems.length === 0}
+                                onClick={handleUploadAllClick}
+                                disabled={
+                                    stagedItems.length === 0 ||
+                                    isBulkUploading ||
+                                    uploadingId !== null
+                                }
                                 className="flex items-center space-x-1 bg-green-600 hover:bg-green-700"
                             >
-                                <Upload className="h-4 w-4" />
-                                <span>Upload All ({stagedItems.length})</span>
+                                {isBulkUploading ? (
+                                    <>
+                                        <span className="animate-spin">
+                                            <Loader />
+                                        </span>
+                                        <span>Uploading…</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Upload className="h-4 w-4" />
+                                        <span>Upload All ({stagedItems.length})</span>
+                                    </>
+                                )}
                             </Button>
                         </div>
 
@@ -355,6 +430,7 @@ export default function Dataset() {
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
+                                            <TableHead>Id</TableHead>
                                             <TableHead>Dataset Name</TableHead>
                                             <TableHead className="w-20">Path</TableHead>
                                             <TableHead className="text-right">Actions</TableHead>
@@ -363,6 +439,11 @@ export default function Dataset() {
                                     <TableBody>
                                         {datasets.map((it) => (
                                             <TableRow key={it.id} className="hover:bg-gray-900">
+                                                <TableCell className="text-muted-foreground">
+                                                    <div className="flex items-center h-full">
+                                                        {it.id}
+                                                    </div>
+                                                </TableCell>
                                                 <TableCell>
                                                     <div className="flex items-center">
                                                         <FileText className="h-4 w-4 mr-2 flex-shrink-0" />
