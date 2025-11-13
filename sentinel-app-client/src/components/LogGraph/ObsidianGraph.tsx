@@ -529,6 +529,28 @@ useLayoutEffect(() => {
             }
             case RelationshipTypes.IP_CONNECTION: {
               // Request/Response: show endpoints plus flow metadata
+              // For IP connections, take source/target IPs from the REQUEST event specifically
+              const dirOf = (l: Log) => (valueFromLog(l, 'direction') || '').toLowerCase();
+              const isRequest = (l: Log) => {
+                const d = dirOf(l);
+                return d === 'request' || d === 'req' || d.includes('request');
+              };
+              let reqLog: Log | undefined = isRequest(sLog) ? sLog : isRequest(tLog) ? tLog : undefined;
+              if (!reqLog) {
+                // Fallback: use smaller flow_seq as request
+                const sa = Number(valueFromLog(sLog, 'flow_seq'));
+                const sb = Number(valueFromLog(tLog, 'flow_seq'));
+                if (Number.isFinite(sa) && Number.isFinite(sb)) {
+                  reqLog = sa <= sb ? sLog : tLog;
+                }
+              }
+              if (!reqLog) reqLog = sLog; // final fallback
+
+              const reqSrcIp = valueFromLog(reqLog, 'src_ip') || valueFromLog(reqLog, 'ip');
+              const reqDstIp = valueFromLog(reqLog, 'dest_ip') || valueFromLog(reqLog, 'destination');
+              srcVal = reqSrcIp || srcVal;
+              tgtVal = reqDstIp || tgtVal;
+
               const flowId = valueFromLog(sLog, 'flow_id') || valueFromLog(tLog, 'flow_id');
               const sDir = valueFromLog(sLog, 'direction');
               const tDir = valueFromLog(tLog, 'direction');
@@ -781,12 +803,10 @@ useLayoutEffect(() => {
         node.attr('transform', (d: any) => `translate(${d.x},${d.y})`);
       });
 
-      console.log('D3 initialized — setting initialized=true');
       setInitialized(true);
 
       cleanup = () => {
         newSimulation.stop();
-        console.log('D3 cleaned up');
         setInitialized(false);
       };
     } catch (err) {
@@ -918,7 +938,6 @@ return (
             const el = svgRef.current;
             if (el) {
               const r = el.getBoundingClientRect();
-              console.log('Generate clicked; svg:', { w: r.width, h: r.height });
               if (r.width === 0 || r.height === 0) {
                 console.warn('SVG has zero size; parent might be collapsed/height=0');
               }
