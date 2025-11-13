@@ -21,7 +21,7 @@ interface GraphOption {
 const defaultGraphOptions: GraphOption[] = [
     { id: "obsidian", name: "Node Graph", enabled: false, height: 400 },
     { id: "geomap", name: "Geographic Map", enabled: false, height: 300 },
-    { id: "error", name: "Error Graph", enabled: false, height: 300 },
+    { id: "error", name: "HTTP Code Frequency Graph", enabled: false, height: 300 },
 ];
 
 // Persist user's enabled graphs between navigations
