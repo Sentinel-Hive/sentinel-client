@@ -271,12 +271,13 @@ export default function Dataset() {
         const name = ds?.name ?? String(id);
 
         // Use a toast-based confirmation with explicit irreversible warning
-    const tid = toast.custom((t) => (
+        const tid = toast.custom((t) => (
             <div className="bg-neutral-900 border border-neutral-700 rounded-md p-3 text-sm max-w-md">
                 <div className="font-medium text-yellow-400 mb-1">Delete dataset permanently?</div>
                 <div className="text-neutral-200 mb-3">
-                    You are about to permanently delete <span className="font-semibold">{name}</span> (ID {id}).
-                    This action cannot be undone.
+                    You are about to permanently delete{" "}
+                    <span className="font-semibold">{name}</span> (ID {id}). This action cannot be
+                    undone.
                 </div>
                 <div className="flex gap-2 justify-end">
                     <button
@@ -300,7 +301,8 @@ export default function Dataset() {
                             } catch (e) {
                                 toast.dismiss(t as any);
                                 toast.error("Delete failed", {
-                                    description: (e as Error)?.message || "Unable to delete dataset.",
+                                    description:
+                                        (e as Error)?.message || "Unable to delete dataset.",
                                 });
                             }
                         }}

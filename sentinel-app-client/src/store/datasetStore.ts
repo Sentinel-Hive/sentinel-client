@@ -52,9 +52,9 @@ export const useDatasetStore: UseBoundStore<StoreApi<DatasetStore>> = create<Dat
                         : d
                 );
                 // If content changed, refresh cache
-                let newCache = { ...state.logsCache };
+                const newCache = { ...state.logsCache };
                 const target = newDatasets.find((d) => d.id === id);
-                if (target && ("content" in partial)) {
+                if (target && "content" in partial) {
                     newCache[id] = parseLogsFromContent(target.content ?? "").map((l) => ({
                         ...l,
                         datasetId: target.id,
@@ -85,8 +85,7 @@ export const useDatasetStore: UseBoundStore<StoreApi<DatasetStore>> = create<Dat
 );
 
 export const useDatasets = () => useDatasetStore((state) => state.datasets);
-export const useSelectedDatasetIds = () =>
-    useDatasetStore((state) => state.selectedDatasetIds);
+export const useSelectedDatasetIds = () => useDatasetStore((state) => state.selectedDatasetIds);
 
 // Return a stable array reference for selected datasets
 export const useSelectedDatasets = () => {
