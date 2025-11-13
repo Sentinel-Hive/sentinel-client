@@ -88,7 +88,7 @@ const generateDistinctColors = (count: number): string[] => {
       const h = Math.floor(hue * 360);
       const { s, l } = combinations[i % combinations.length];
       
-      // Only every eighth color is grayscale now
+      // Only every eighth color is grayscale
       if (i % 8 === 7) {
         colors.push(`hsl(0, 0%, ${30 + Math.floor(Math.random() * 40)}%)`); // Grays between 30% and 70% lightness
       } else {

@@ -83,7 +83,6 @@ const Graphs = () => {
     setEventColors(colors => [...colors, { eventType, color }]);
   };
 
-  // Get available values for each criteria type from selected datasets (robust field parsing)
   const availableValues = useMemo(() => {
     const values = {
       event_type: new Set<string>(),
@@ -352,8 +351,6 @@ const Graphs = () => {
                       selectedCriteria={colorCriteria}
                       onCriteriaChange={(c) => {
                         setColorCriteria(c);
-                        // Optionally clear existing colors when criteria changes
-                        // setEventColors([]); (keep existing to allow multi-criteria palette)
                       }}
                     />
                   </div>

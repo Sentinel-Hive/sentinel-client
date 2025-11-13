@@ -383,8 +383,6 @@ export default function Analytics() {
             const ds = datasets.find((d) => d.id === id);
             if (!ds) continue;
             if (!ds.path) continue;
-
-            // 🔑 Already have content? Don't refetch or update.
             if (ds.content && ds.content.length > 0) continue;
 
             try {

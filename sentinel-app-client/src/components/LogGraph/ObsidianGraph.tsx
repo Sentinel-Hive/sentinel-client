@@ -188,7 +188,7 @@ const ObsidianGraph = ({
           rect.height !== dimsRef.current.height) {
         setDimensions({ width: rect.width, height: rect.height });
       }
-    }, 150); // small polling
+    }, 150);
 
     return () => clearInterval(id);
   }, []);
@@ -400,7 +400,7 @@ const ObsidianGraph = ({
 
       setNodes(newNodes);
       setLinks(linksOut);
-      setInitialized(false); // new data, re-init soon
+      setInitialized(false);
     } catch (e) {
       console.error('Error processing logs:', e);
       setNodes([]);
@@ -408,10 +408,7 @@ const ObsidianGraph = ({
     }
   }, [logs, selectedRelationship]);
 
-  // ---- D3 init ----
-  // 1) ---- D3 init ----
-// CHANGE the dependency list: remove colors, shapes, onNodeClick, and links/nodes *objects*.
-// Depend only on isReady and the *sizes* (length) of nodes/links.
+
 useLayoutEffect(() => {
   if (!isReady || nodes.length === 0) {
     return;
@@ -631,7 +628,6 @@ useLayoutEffect(() => {
         .join('g')
         .call(drag(newSimulation) as any);
 
-      // Robust default for shape + pentagon helper (keep your existing shape code if you already added it)
       const drawPolygon = (
         elem: d3.Selection<SVGGElement, any, SVGGElement | null, unknown>,
         sides: number,
@@ -859,7 +855,7 @@ useLayoutEffect(() => {
       const nodeColor = (colorKey && colors[colorKey]) || '#999';
       d3.select(this).select('circle').attr('fill', nodeColor);
       d3.select(this).select('rect').attr('fill', nodeColor);
-      d3.select(this).select('path').attr('fill', nodeColor); // covers triangle/diamond/pentagon
+      d3.select(this).select('path').attr('fill', nodeColor);
     });
   }, [colors, colorCriteria, isReady, nodes.length]);
 
@@ -894,8 +890,6 @@ useLayoutEffect(() => {
     return d3.drag().on('start', dragstarted).on('drag', dragged).on('end', dragended);
   };
 
-  // Keep prior initialization unless the topology size changes; the D3 effect will
-  // re-run on nodes/links length changes and handle cleanup/re-init there.
 
   // ---------- Render ----------
   if (!logs || logs.length === 0) {
@@ -922,9 +916,7 @@ useLayoutEffect(() => {
     );
   }
 
-  // Note: don't early-return here; keep the SVG in the DOM so D3 can attach to it.
 
-  // 3) Make sure the container has a real height (so layout never measures 0x0)
 return (
   <div ref={containerRef} className="w-full h-full relative min-h-0">
     <div className="w-full h-full">

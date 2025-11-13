@@ -8,7 +8,6 @@ import {
 } from "../components/ui/select";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-// Checkbox removed with deprecated Type filter
 import { ChevronDown, ChevronUp } from "lucide-react";
 
 export type FilterField = {
