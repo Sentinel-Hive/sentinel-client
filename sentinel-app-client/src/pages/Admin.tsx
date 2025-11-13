@@ -44,7 +44,7 @@ export default function Admin() {
 
     return (
         <div className="flex flex-col h-full w-full p-5">
-            <div className="flex h-full w-full">
+            <div className="flex w-full">
                 {settings.map((page, i) => (
                     <Button
                         key={i}
@@ -55,7 +55,9 @@ export default function Admin() {
                     </Button>
                 ))}
             </div>
-            <div className="flex-grow w-full">{contentToDisplay || <div>Page not found.</div>}</div>
+            <div className="flex-grow w-full min-h-0 max-h-[75vh] overflow-y-auto">
+                {contentToDisplay || <div>Page not found.</div>}
+            </div>
         </div>
     );
 }

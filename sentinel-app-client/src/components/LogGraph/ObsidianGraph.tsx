@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import * as d3 from 'd3';
 import { Log, NodeData, LinkData, RelationshipTypes } from '../../types/types';
-import { getLogField } from '@/lib/utils';
+import { getLogField, getLogTimestamp } from '@/lib/utils';
 
 type SimulationNode = d3.SimulationNodeDatum & NodeData;
 type SimulationLink = d3.SimulationLinkDatum<SimulationNode> & LinkData;
@@ -21,7 +21,7 @@ interface ObsidianGraphProps {
   selectedRelationship: RelationshipTypes;
   colors: { [key: string]: string };
   shapes: { [key: string]: string };
-  colorCriteria?: 'event_type' | 'severity' | 'app_type' | 'src_ip' | 'dest_ip';
+  colorCriteria?: 'event_type' | 'severity' | 'app_type' | 'src_ip' | 'dest_ip' | 'user';
   // Physics controls
   centerStrength?: number; // strength for x/y centering forces
   repelStrength?: number; // many-body negative strength
@@ -81,6 +81,59 @@ const ObsidianGraph = ({
       }
     }
     return value || '';
+  };
+
+  // Helper to robustly extract a display value for common fields with raw fallbacks
+  const valueFromLog = (log: Log, field: string): string => {
+    // First, try centralized parser
+    let v = getLogField(log, field);
+    const asString = (x: unknown): string => {
+      if (x == null) return '';
+      if (typeof x === 'string' || typeof x === 'number' || typeof x === 'boolean') return String(x);
+      try { return JSON.stringify(x); } catch { return String(x); }
+    };
+
+    if (!v || v.trim() === '') {
+      // Direct field on normalized log
+      const direct = (log as any)[field];
+      if (direct != null) v = asString(direct);
+    }
+    if (!v || v.trim() === '') {
+      // Fallback to raw content
+      const raw = (log as any).raw || {};
+      if (field === 'dest_ip') {
+        v = asString(
+          raw.dest ?? raw.destination ?? raw.dst_ip ?? raw.destinationIp ?? raw.destination_ip ?? raw.destinationAddress ?? raw?.destination?.ip ?? raw?.target?.ip
+        );
+      } else if (field === 'src_ip') {
+        v = asString(
+          raw.src_ip ?? raw.ipAddress ?? raw.source_ip ?? raw.client_ip ?? raw.ip ?? raw.sourceIp ?? raw?.source?.ip
+        );
+      } else if (field === 'timestamp') {
+        v = asString(
+          raw.timestamp ?? raw['@timestamp'] ?? raw.time ?? raw.date ?? (log as any).timestamp
+        );
+      } else if (field === 'app' || field === 'app_type') {
+        v = asString(raw.app ?? raw.appDisplayName ?? raw.resourceDisplayName ?? raw.application ?? raw?.service?.name);
+      } else if (field === 'event_type') {
+        v = asString(raw.event_type ?? raw.evt_type ?? raw.eventtype ?? raw.eventType ?? raw.operationName ?? raw.type);
+      } else if (field === 'user') {
+        v = asString(raw.user ?? raw.userPrincipalName);
+      } else if (field === 'status') {
+        const st = raw.status;
+        if (typeof st === 'string' || typeof st === 'number' || typeof st === 'boolean') {
+          v = asString(st);
+        } else if (st && typeof st === 'object') {
+          v = asString((st as any).failureReason ?? (st as any).message ?? (st as any).state ?? (st as any).code ?? JSON.stringify(st));
+        }
+        if (!v || v.trim() === '') {
+          v = asString(raw.outcome ?? raw.result ?? raw?.event?.outcome);
+        }
+      } else if (field in raw) {
+        v = asString(raw[field]);
+      }
+    }
+    return (v || '').trim();
   };
 
   // Measure once at mount
@@ -173,17 +226,24 @@ const ObsidianGraph = ({
 
     try {
       // 1) Create one node per log (even if it becomes an orphan)
-      const newNodes: NodeData[] = logs.map((log, idx) => ({
-        id: String(log.id ?? `log-${idx}`),
-        type: log.type || 'unknown',
-        value:
-          (log.app || log.appDisplayName || '') && (log.event_type || (log as any).evt_type)
-            ? `${log.app || log.appDisplayName} ${(log.event_type || (log as any).evt_type) as string}`
-            : (log.message || log.id || `log-${idx}`),
-        // Use dataset id string as the grouping key for shapes; fallback to name or 'unknown'
-        dataset: String(log.datasetId ?? log.datasetName ?? 'unknown'),
-        details: log,
-      }));
+      const newNodes: NodeData[] = logs.map((log, idx) => {
+        // Build a dataset-scoped unique node id to avoid collisions across datasets
+        const datasetKey = String(log.datasetId ?? log.datasetName ?? 'unknown');
+        const localId = String(log.id ?? idx);
+        const uniqueId = `${datasetKey}:${localId}`;
+
+        return {
+          id: uniqueId,
+          type: log.type || 'unknown',
+          value:
+            (log.app || log.appDisplayName || '') && (log.event_type || (log as any).evt_type)
+              ? `${log.app || log.appDisplayName} ${(log.event_type || (log as any).evt_type) as string}`
+              : (log.message || log.id || `log-${idx}`),
+          // Use dataset id string as the grouping key for shapes; fallback to name or 'unknown'
+          dataset: datasetKey,
+          details: log,
+        };
+      });
 
       // 2) Build links based on relationship rules
       const idAt = (i: number) => newNodes[i].id;
@@ -201,10 +261,22 @@ const ObsidianGraph = ({
       const linkSet = new Set<string>();
       const linksOut: LinkData[] = [];
 
-      const by = (getter: (l: Log) => string | undefined) => {
+      // Group logs by a robust field value (using normalized + raw fallbacks)
+      const byField = (field: string) => {
         const map = new Map<string, number[]>();
         logs.forEach((l, i) => {
-          const k = getter(l);
+          const rawKey = valueFromLog(l, field);
+          const k = (rawKey || '').toString().trim();
+          if (!k) return;
+          if (!map.has(k)) map.set(k, []);
+          map.get(k)!.push(i);
+        });
+        return map;
+      };
+      const byGetter = (getter: (l: Log) => string | undefined) => {
+        const map = new Map<string, number[]>();
+        logs.forEach((l, i) => {
+          const k = (getter(l) || '').toString().trim();
           if (!k) return;
           if (!map.has(k)) map.set(k, []);
           map.get(k)!.push(i);
@@ -227,20 +299,51 @@ const ObsidianGraph = ({
       };
 
       if (selectedRelationship === RelationshipTypes.IP_CONNECTION) {
-        const bySrc = by((l) => l.src_ip);
-        const byDst = by((l) => l.dest_ip || (l as any).dest);
-        // For any IP that appears as a src in some logs and as a dest in others, connect cross-pairs
-        const ips = new Set<string>([...bySrc.keys(), ...byDst.keys()]);
-        ips.forEach((ip) => {
-          const srcIdxs = bySrc.get(ip) || [];
-          const dstIdxs = byDst.get(ip) || [];
-          for (const i of srcIdxs) {
-            for (const j of dstIdxs) addPair(i, j, linkSet, linksOut);
+        // Request/Response linking STRICTLY by flow_id (exact match) AND per-dataset.
+        // Build composite groups: `${dataset}|${flow_id}` so flows never cross datasets.
+        const flows = new Map<string, number[]>();
+        logs.forEach((l, i) => {
+          const flow = valueFromLog(l, 'flow_id');
+          const kFlow = (flow || '').toString().trim();
+          if (!kFlow) return; // require explicit flow_id
+          const datasetKey = String((l as any).datasetId ?? (l as any).datasetName ?? 'unknown').trim();
+          const key = `${datasetKey}|${kFlow}`;
+          if (!flows.has(key)) flows.set(key, []);
+          flows.get(key)!.push(i);
+        });
+
+        // Helper to compute ordering within a flow
+        const getSeq = (l: Log): number | undefined => {
+          const direct = (l as any).flow_seq;
+          const fromVal = direct ?? valueFromLog(l, 'flow_seq');
+          const n = Number(fromVal);
+          return Number.isFinite(n) ? n : undefined;
+        };
+        const getTsNum = (l: Log): number => {
+          const ts = getLogTimestamp(l);
+          const t = ts ? Date.parse(ts) : NaN;
+          return Number.isFinite(t) ? t : Number.MAX_SAFE_INTEGER;
+        };
+
+        flows.forEach((idxs, flowKey) => {
+          if (idxs.length < 2) return; // cannot form a pair
+          const sorted = [...idxs].sort((a, b) => {
+            const la = logs[a];
+            const lb = logs[b];
+            const sa = getSeq(la);
+            const sb = getSeq(lb);
+            if (sa != null && sb != null && sa !== sb) return sa - sb;
+            if (sa != null && sb == null) return -1; // sequence has priority
+            if (sa == null && sb != null) return 1;
+            // fallback to timestamp order
+            return getTsNum(la) - getTsNum(lb);
+          });
+          for (let i = 0; i < sorted.length - 1; i++) {
+            addPair(sorted[i], sorted[i + 1], linkSet, linksOut);
           }
-          // vice versa is naturally covered by cross-product above
         });
       } else if (selectedRelationship === RelationshipTypes.USER_EVENT) {
-        const groups = by((l) => l.user || (l as any).userPrincipalName);
+        const groups = byField('user');
         groups.forEach((idxs, key) => {
           if (idxs.length > 6) {
             const centerIdx = pickCenterIndex(idxs, key);
@@ -253,7 +356,8 @@ const ObsidianGraph = ({
           }
         });
       } else if (selectedRelationship === RelationshipTypes.APP_EVENT) {
-        const groups = by((l) => (l.event_type || (l as any).evt_type || (l as any).eventtype) as string | undefined);
+        // Connect logs that share the same application
+        const groups = byField('app');
         groups.forEach((idxs, key) => {
           if (idxs.length > 6) {
             const centerIdx = pickCenterIndex(idxs, key);
@@ -266,7 +370,7 @@ const ObsidianGraph = ({
           }
         });
       } else if (selectedRelationship === RelationshipTypes.HOST_EVENT) {
-        const groups = by((l) => l.host);
+        const groups = byField('host');
         groups.forEach((idxs, key) => {
           if (idxs.length > 6) {
             const centerIdx = pickCenterIndex(idxs, key);
@@ -279,17 +383,13 @@ const ObsidianGraph = ({
           }
         });
       } else if (selectedRelationship === RelationshipTypes.SEVERITY_LEVEL) {
-        // Group strictly by severity string; if entirely absent, fall back to threatIndicator.
-        const bySeverity = by((l) => l.severity);
-        const sourceMap = bySeverity.size > 0 ? bySeverity : by((l) => (l as any).threatIndicator);
-        sourceMap.forEach((idxs) => {
-          // Star topology if large group
+        // Connect all logs that share the same severity (complete linkage)
+        const groups = byField('severity');
+        groups.forEach((idxs, key) => {
           if (idxs.length > 6) {
-            const centerIdx = pickCenterIndex(idxs, 'severity');
+            const centerIdx = pickCenterIndex(idxs, key);
             if (centerIdx >= 0) newNodes[centerIdx].isStarCenter = true;
-            idxs.forEach((other) => {
-              if (other !== centerIdx) addPair(centerIdx, other, linkSet, linksOut);
-            });
+            idxs.forEach((other) => { if (other !== centerIdx) addPair(centerIdx, other, linkSet, linksOut); });
           } else {
             for (let a = 0; a < idxs.length; a++) {
               for (let b = a + 1; b < idxs.length; b++) addPair(idxs[a], idxs[b], linkSet, linksOut);
@@ -412,15 +512,70 @@ useLayoutEffect(() => {
           tooltip.transition().duration(150).style('opacity', 0.9);
           const s: any = d.source; // simulation node
           const t: any = d.target;
-          const srcVal = s?.value || s?.id || '';
-          const tgtVal = t?.value || t?.id || '';
-          const rel = d.type || 'link';
+          // Choose values based on relationship type
+          let srcVal = s?.value || s?.id || '';
+          let tgtVal = t?.value || t?.id || '';
+          let extraRow = '';
+
+          const sLog = (s?.details || {}) as Log;
+          const tLog = (t?.details || {}) as Log;
+          switch (selectedRelationship) {
+            case RelationshipTypes.USER_EVENT: {
+              const su = valueFromLog(sLog, 'user');
+              const tu = valueFromLog(tLog, 'user');
+              srcVal = su || srcVal;
+              tgtVal = tu || tgtVal;
+              break;
+            }
+            case RelationshipTypes.IP_CONNECTION: {
+              // Request/Response: show endpoints plus flow metadata
+              const flowId = valueFromLog(sLog, 'flow_id') || valueFromLog(tLog, 'flow_id');
+              const sDir = valueFromLog(sLog, 'direction');
+              const tDir = valueFromLog(tLog, 'direction');
+              const arrow = sDir && tDir ? `${sDir} → ${tDir}` : '';
+              const seqInfo = (() => {
+                const sa = valueFromLog(sLog, 'flow_seq');
+                const sb = valueFromLog(tLog, 'flow_seq');
+                return sa && sb ? `seq ${sa} → ${sb}` : '';
+              })();
+              const parts = [
+                flowId ? `<div><span class=\"text-neutral-400\">flow_id:</span> ${flowId}</div>` : '',
+                arrow ? `<div><span class=\"text-neutral-400\">direction:</span> ${arrow}</div>` : '',
+                seqInfo ? `<div><span class=\"text-neutral-400\">order:</span> ${seqInfo}</div>` : ''
+              ].filter(Boolean);
+              extraRow = parts.join('');
+              break;
+            }
+            case RelationshipTypes.APP_EVENT: {
+              const sapp = valueFromLog(sLog, 'app');
+              const tapp = valueFromLog(tLog, 'app');
+              srcVal = sapp || srcVal;
+              tgtVal = tapp || tgtVal;
+              break;
+            }
+            case RelationshipTypes.HOST_EVENT: {
+              const shost = valueFromLog(sLog, 'host');
+              const thost = valueFromLog(tLog, 'host');
+              srcVal = shost || srcVal;
+              tgtVal = thost || tgtVal;
+              break;
+            }
+            case RelationshipTypes.SEVERITY_LEVEL: {
+              const ssev = valueFromLog(sLog, 'severity');
+              const tsev = valueFromLog(tLog, 'severity');
+              srcVal = ssev || srcVal;
+              tgtVal = tsev || tgtVal;
+              break;
+            }
+          }
+          const rel = selectedRelationship === RelationshipTypes.APP_EVENT ? 'APP TYPE' : (d.type || 'link');
           tooltip
             .html(`
               <div class="bg-neutral-800 p-2 rounded text-xs space-y-0.5">
                 <div><span class="text-neutral-400">relationship:</span> ${rel}</div>
                 <div><span class="text-neutral-400">source:</span> ${srcVal}</div>
                 <div><span class="text-neutral-400">target:</span> ${tgtVal}</div>
+                ${extraRow}
               </div>
             `)
             .call(() => {
@@ -523,10 +678,10 @@ useLayoutEffect(() => {
             .attr('transform', 'scale(1.2)');
 
           tooltip.transition().duration(200).style('opacity', 0.9);
-          const log = d.details || {};
-          const evtTypeRaw = log.event_type || log.evt_type || log.eventtype || '';
+          const log = (d.details || {}) as Log;
+          const evtTypeRaw = valueFromLog(log, 'event_type');
           const evtType = evtTypeRaw || 'n/a';
-          const ts = log.timestamp || log._time || log.createdDateTime || 'n/a';
+          const ts = getLogTimestamp(log) || valueFromLog(log, 'timestamp') || 'n/a';
           const formatEvt = (raw: string) => {
             if (!raw) return '';
             const cleaned = raw.trim();
@@ -536,7 +691,21 @@ useLayoutEffect(() => {
             const core = dotParts.length ? dotParts[dotParts.length - 1] : lastComma;
             return core.replace(/_/g, ' ').split(/\s+/).map((w: string) => w ? w[0].toUpperCase() + w.slice(1) : w).join(' ');
           };
-          const dispName = `${(log.app || log.appDisplayName || 'n/a')}${evtType ? ' ' + formatEvt(evtType) : ''}`;
+          const appVal = valueFromLog(log, 'app') || 'n/a';
+          const dispName = `${appVal}${evtType ? ' ' + formatEvt(evtType) : ''}`;
+          const srcIp = valueFromLog(log, 'src_ip') || 'n/a';
+          const destIp = valueFromLog(log, 'dest_ip') || 'n/a';
+          const user = valueFromLog(log, 'user') || 'n/a';
+          const severity = valueFromLog(log, 'severity') || '';
+          const app = appVal;
+          const dest_port = valueFromLog(log, 'dest_port') || 'n/a';
+          const src_port = valueFromLog(log, 'src_port') || 'n/a';
+          const status = valueFromLog(log, 'status') || valueFromLog(log, 'outcome') || 'n/a';
+          const direction = valueFromLog(log, 'direction') || 'n/a';
+          const flow_id = valueFromLog(log, 'flow_id') || 'n/a';
+          const flow_seq = valueFromLog(log, 'flow_seq') || '';
+          const host = valueFromLog(log, 'host') || 'n/a';
+          const latency_ms = valueFromLog(log, 'latency_ms') || '';
           tooltip
             .html(`
               <div class="bg-neutral-800 p-2 rounded text-xs space-y-0.5">
@@ -544,16 +713,19 @@ useLayoutEffect(() => {
                 <div><span class="text-neutral-400">message:</span> ${dispName}</div>
                 <div><span class="text-neutral-400">type:</span> ${log.type || 'n/a'}</div>
                 <div><span class="text-neutral-400">timestamp:</span> ${ts}</div>
-                <div><span class="text-neutral-400">src_ip:</span> ${log.src_ip || 'n/a'}</div>
-                <div><span class="text-neutral-400">dest_ip:</span> ${log.dest_ip || log.dest || 'n/a'}</div>
-                <div><span class="text-neutral-400">user:</span> ${log.user || log.userPrincipalName || 'n/a'}</div>
+                <div><span class="text-neutral-400">src_ip:</span> ${srcIp}</div>
+                <div><span class="text-neutral-400">dest_ip:</span> ${destIp}</div>
+                <div><span class="text-neutral-400">user:</span> ${user}</div>
                 <div><span class="text-neutral-400">event_type:</span> ${evtType}</div>
-                <div><span class="text-neutral-400">severity:</span> ${log.severity || ''}</div>
-                <div><span class="text-neutral-400">app:</span> ${log.app || log.appDisplayName || 'n/a'}</div>
-                <div><span class="text-neutral-400">dest_port:</span> ${log.dest_port || 'n/a'}</div>
-                <div><span class="text-neutral-400">src_port:</span> ${log.src_port || 'n/a'}</div>
-                <div><span class="text-neutral-400">status:</span> ${log.status || 'n/a'}</div>
-                <div><span class="text-neutral-400">host:</span> ${log.host || 'n/a'}</div>
+                <div><span class="text-neutral-400">severity:</span> ${severity}</div>
+                <div><span class="text-neutral-400">app:</span> ${app}</div>
+                <div><span class="text-neutral-400">dest_port:</span> ${dest_port}</div>
+                <div><span class="text-neutral-400">src_port:</span> ${src_port}</div>
+                <div><span class="text-neutral-400">status:</span> ${status}</div>
+                <div><span class="text-neutral-400">host:</span> ${host}</div>
+                <div><span class="text-neutral-400">direction:</span> ${direction}</div>
+                <div><span class="text-neutral-400">flow_id:</span> ${flow_id}</div>
+                ${flow_seq ? `<div><span class=\"text-neutral-400\">flow_seq:</span> ${flow_seq}</div>` : ''}
               </div>
             `)
             .call(() => {
@@ -609,12 +781,12 @@ useLayoutEffect(() => {
         node.attr('transform', (d: any) => `translate(${d.x},${d.y})`);
       });
 
-      console.log('✅ D3 initialized — setting initialized=true');
+      console.log('D3 initialized — setting initialized=true');
       setInitialized(true);
 
       cleanup = () => {
         newSimulation.stop();
-        console.log('🧹 D3 cleaned up');
+        console.log('D3 cleaned up');
         setInitialized(false);
       };
     } catch (err) {

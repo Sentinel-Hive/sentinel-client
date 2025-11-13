@@ -458,7 +458,7 @@ export default function UserPage() {
                 </Dialog>
             </div>
 
-            <div className="rounded-md border">
+            <div className="rounded-md border max-h-[65vh] overflow-y-auto">
                 <Table>
                     <TableHeader>
                         <TableRow>

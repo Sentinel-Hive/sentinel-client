@@ -122,7 +122,6 @@ export async function fetchDatasetContent(datasetId: number, path: string): Prom
 
     const body = await res.json();
     const fileData = body[0];
-    console.log(fileData);
 
     if (fileData == null) return null;
 

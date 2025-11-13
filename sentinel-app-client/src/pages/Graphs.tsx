@@ -90,7 +90,8 @@ const Graphs = () => {
       severity: new Set<string>(),
       app_type: new Set<string>(),
       src_ip: new Set<string>(),
-      dest_ip: new Set<string>()
+      dest_ip: new Set<string>(),
+      user: new Set<string>()
     } as const;
 
     const addIf = (set: Set<string>, v?: string) => {
@@ -103,6 +104,7 @@ const Graphs = () => {
       addIf(values.app_type, getLogField(log, 'app'));
       addIf(values.src_ip, getLogField(log, 'src_ip'));
       addIf(values.dest_ip, getLogField(log, 'dest_ip'));
+      addIf(values.user, getLogField(log, 'user'));
     });
 
     return {
@@ -110,7 +112,8 @@ const Graphs = () => {
       severity: Array.from(values.severity),
       app_type: Array.from(values.app_type),
       src_ip: Array.from(values.src_ip),
-      dest_ip: Array.from(values.dest_ip)
+      dest_ip: Array.from(values.dest_ip),
+      user: Array.from(values.user)
     };
   }, [logs]);
 

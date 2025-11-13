@@ -6,9 +6,26 @@ interface RelationshipPickerProps {
 }
 
 const RelationshipPicker = ({ onRelationshipChange, selectedRelationship }: RelationshipPickerProps) => {
+  const toLabel = (type: RelationshipTypes) => {
+    switch (type) {
+      case RelationshipTypes.APP_EVENT:
+        return 'App Type';
+      case RelationshipTypes.IP_CONNECTION:
+        return 'Request/Response';
+      case RelationshipTypes.USER_EVENT:
+        return 'Same User';
+      case RelationshipTypes.HOST_EVENT:
+        return 'Same Host';
+      case RelationshipTypes.SEVERITY_LEVEL:
+        return 'Severity Level';
+      default:
+        return String(type);
+    }
+  };
+
   const relationships = Object.values(RelationshipTypes).map(type => ({
     value: type,
-    label: type
+    label: toLabel(type)
   }));
 
   return (

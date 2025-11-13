@@ -374,26 +374,31 @@ export default function Analytics() {
 
     // Lazy-load dataset files when a dataset is selected so logs populate
     useEffect(() => {
-        if (selectedDatasets.length === 0) return;
-        const update = useDatasetStore.getState().updateDataset;
-        const loaded = new Set<number>();
-        (async () => {
-            for (const ds of selectedDatasets) {
-                if (!ds || loaded.has(ds.id)) continue;
-                loaded.add(ds.id);
-                if (!ds.path) continue;
-                try {
-                    const content = await fetchDatasetContent(ds.id, ds.path);
-                    if (content) {
-                        // This will also refresh logsCache for this dataset
-                        update(ds.id, { content });
-                    }
-                } catch (e) {
-                    console.error("Failed to fetch dataset content for", ds.id, e);
+    if (selectedDatasetIds.length === 0) return;
+
+    const { updateDataset, datasets } = useDatasetStore.getState();
+
+    (async () => {
+        for (const id of selectedDatasetIds) {
+            const ds = datasets.find((d) => d.id === id);
+            if (!ds) continue;
+            if (!ds.path) continue;
+
+            // 🔑 Already have content? Don't refetch or update.
+            if (ds.content && ds.content.length > 0) continue;
+
+            try {
+                const content = await fetchDatasetContent(ds.id, ds.path);
+                if (content) {
+                    // This will also refresh logsCache for this dataset
+                    updateDataset(ds.id, { content });
                 }
+            } catch (e) {
+                console.error("Failed to fetch dataset content for", ds.id, e);
             }
-        })();
-    }, [selectedDatasets]);
+        }
+    })();
+}, [selectedDatasetIds]);
 
     return (
         <>
@@ -590,13 +595,19 @@ export default function Analytics() {
                                     </div>
                                 ) : (
                                     displayedLogs.map((log) => {
-                                        const isSelected = selectedLog?.id === log.id;
+                                        const isSelected =
+                                            selectedLog?.id === log.id &&
+                                            selectedLog?.datasetId === log.datasetId;
                                         return (
                                             <div
-                                                key={log.id}
+                                                key={`${log.datasetId ?? "unknown"}:${log.id}`}
                                                 onClick={() =>
                                                     setSelectedLog((prev) =>
-                                                        prev?.id === log.id ? null : log
+                                                        prev &&
+                                                        prev.id === log.id &&
+                                                        prev.datasetId === log.datasetId
+                                                            ? null
+                                                            : log
                                                     )
                                                 }
                                                 className={`p-2 rounded border overflow-hidden cursor-pointer ${

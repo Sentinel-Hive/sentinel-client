@@ -216,7 +216,7 @@ export default function Datasets() {
 
     return (
         <>
-            <div className="flex-1 my-4 mr-4">
+            <div className="flex-1 my-4 mr-4 max-h-[70vh] overflow-y-auto">
                 <span className="flex justify-end w-full">
                     <Button
                         size="lg"
@@ -234,7 +234,7 @@ export default function Datasets() {
                         </div>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-1 lg:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-1 lg:grid-cols-2 gap-3 pr-1">
                         {datasets.map((ds) => {
                             const logsCount = (logsByDatasetId[ds.id] ?? []).length;
                             return (

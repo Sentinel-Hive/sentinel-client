@@ -315,7 +315,7 @@ export default function Dataset() {
     };
 
     return (
-        <div className="flex w-full h-full border-yellow-600 border p-5">
+        <div className="flex w-full max-h-[75vh] overflow-y-auto border-yellow-600 border p-5">
             <Card className="w-full border-none max-w-3xl mx-auto shadow-lg">
                 <CardHeader>
                     <CardTitle className="flex items-center space-x-2">
@@ -467,7 +467,7 @@ export default function Dataset() {
                                 <strong>Upload All</strong> to see them here.
                             </div>
                         ) : (
-                            <div className="rounded-md border">
+                            <div className="rounded-md border max-h-[65vh] overflow-y-auto">
                                 <Table>
                                     <TableHeader>
                                         <TableRow>

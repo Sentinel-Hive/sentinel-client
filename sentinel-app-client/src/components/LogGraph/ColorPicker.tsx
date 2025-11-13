@@ -13,7 +13,8 @@ export type ColorCriteria =
   | "severity"    // Info, Warning, Error, etc.
   | "app_type"    // Application name/type
   | "src_ip"      // Source IP
-  | "dest_ip";    // Destination IP
+  | "dest_ip"     // Destination IP
+  | "user";       // User principal / name
 
 export interface AvailableValues {
   event_type: string[];
@@ -21,6 +22,7 @@ export interface AvailableValues {
   app_type: string[];
   src_ip: string[];
   dest_ip: string[];
+  user: string[];
 }
 
 interface ColorPickerProps {
@@ -149,7 +151,8 @@ const criteriaTitles: Record<ColorCriteria | "select", string> = {
   severity: "Severity Level",
   app_type: "Application Type",
   src_ip: "Source IP",
-  dest_ip: "Destination IP"
+  dest_ip: "Destination IP",
+  user: "User"
 };
 
 const ColorPicker = ({ colors, onColorChange, onRemoveColor, onAddColor, availableValues, selectedCriteria, onCriteriaChange }: ColorPickerProps) => {
