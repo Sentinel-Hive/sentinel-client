@@ -164,7 +164,6 @@ export default function Header() {
                                 className="hover:text-yellow-500 inline-flex items-center gap-2 rounded-xl px-3 py-2 hover:bg-neutral-800/60 focus:outline-none focus:ring-2 focus:ring-neutral-700 [&_svg]:h-5 [&_svg]:w-5 text-gray-300"
                             >
                                 <Bell className="h-4 w-4" />
-                                <span className="hidden sm:inline">{notifications.length}</span>
                                 {notifications.length > 0 && (
                                     <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[hsl(var(--primary))] px-1 text-[10px] font-bold text-[hsl(var(--primary-foreground))]">
                                         {notifications.length}
