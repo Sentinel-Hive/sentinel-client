@@ -371,6 +371,30 @@ export function connectWebsocket() {
                 const parsed = JSON.parse(ev.data) as ServerMessage;
                 delivered = parsed;
 
+                // Handle server shutdown notification
+                if ((parsed as any)?.type === "server_shutdown") {
+                    console.error("[WS] Server is shutting down");
+                    const message = (parsed as any)?.message || "Server is shutting down";
+
+                    // Show notification to user
+                    addPopupToStore(message);
+
+                    // Close the websocket connection
+                    try{
+                        _websocket?.close();
+                    } catch {}
+
+                    // Force logout
+                    setTimeout(async () => {
+                        await logout();
+                        if (typeof window !== "undefined") {
+                            window.location.href = "/login?reason=server_shutdown";
+                        }
+                    }, 2000);
+
+                    return;
+                }
+
                 if (isAlertMessage(parsed)) {
                     try {
                         addAlert(parsed);
@@ -402,6 +426,19 @@ export function connectWebsocket() {
     ws.onclose = (e: CloseEvent) => {
         console.log("[WS] onclose code=", e.code, "reason=", e.reason);
         _emitWsOpen(false);
+
+        // Handle error code
+        if (e.code === 1001) {
+            // Server shutting down
+            console.error('[WS] Connection closed: Server is shutting down.');
+            addPopupToStore('Server is shutting down.  Please log in again later.');
+
+            logout().then(() => {
+                if (typeof window !== "undefined") {
+                    window.location.href = "/login?reason=server_shutdown";
+                }
+            });
+        }
     };
 
     ws.onerror = (e: Event) => {
