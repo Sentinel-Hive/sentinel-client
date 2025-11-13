@@ -1,3 +1,4 @@
+// src/pages/Graphs.tsx (or wherever this lives)
 import { useState, useEffect, useMemo } from "react";
 import { getLogField } from "@/lib/utils";
 import ColorPicker, { EventColor, ColorCriteria } from "../components/LogGraph/ColorPicker";
@@ -17,7 +18,7 @@ interface GraphOption {
 }
 
 const defaultGraphOptions: GraphOption[] = [
-    { id: "obsidian", name: "Node Graph", enabled: true, height: 400 },
+    { id: "obsidian", name: "Node Graph", enabled: false, height: 400 },
     { id: "geomap", name: "Geographic Map", enabled: false, height: 300 },
     { id: "error", name: "Error Graph", enabled: false, height: 300 },
 ];
@@ -25,7 +26,7 @@ const defaultGraphOptions: GraphOption[] = [
 const DEFAULT_SIDEBAR_WIDTH = 300; // Match analytics page width
 const MIN_SIDEBAR_WIDTH = 275; // Prevent panel from getting too small
 const MIN_GRAPH_WIDTH = 480; // Always leave room for the graph
-const MAX_SIDEBAR_FRACTION = 0.3; // Cap sidebar at 50% of viewport
+const MAX_SIDEBAR_FRACTION = 0.3; // Cap sidebar at 30% of viewport
 
 const Graphs = () => {
     const [eventColors, setEventColors] = useState<EventColor[]>([]);
@@ -114,11 +115,16 @@ const Graphs = () => {
         };
     }, [logs]);
 
+    // Is node graph enabled?
+    const nodeGraphEnabled = useMemo(
+        () => graphOptions.find((g) => g.id === "obsidian")?.enabled ?? false,
+        [graphOptions]
+    );
+
     // Sidebar resize handler
     useEffect(() => {
         const onMove = (e: MouseEvent) => {
             if (!isResizingSidebar || sidebarCollapsed) return;
-            // Compute dynamic max: leave at least MIN_GRAPH_WIDTH for graph and cap by fraction
             const maxByMinGraph = window.innerWidth - MIN_GRAPH_WIDTH;
             const maxByFraction = Math.floor(window.innerWidth * MAX_SIDEBAR_FRACTION);
             const max = Math.max(MIN_SIDEBAR_WIDTH, Math.min(maxByMinGraph, maxByFraction));
@@ -363,147 +369,162 @@ const Graphs = () => {
                                 ))}
                             </div>
 
-                            <div className="pt-2 border-t border-neutral-700">
-                                <h3 className="text-sm font-medium text-yellow-400 mb-2">
-                                    Selected Datasets
-                                </h3>
-                                {selectedDatasets.length === 0 ? (
-                                    <div className="text-xs text-neutral-400">
-                                        No datasets selected on Analytics page.
-                                    </div>
-                                ) : (
-                                    <div className="space-y-1">
-                                        {selectedDatasets.map((ds) => (
-                                            <div
-                                                key={ds.id}
-                                                className="rounded bg-neutral-900 border border-neutral-700 px-3 py-1 text-sm text-neutral-200 flex items-center gap-2"
-                                            >
-                                                <ShapeMark shape={datasetShapes[String(ds.id)]} />
-                                                <span>{ds.name}</span>
+                            {nodeGraphEnabled && (
+                                <>
+                                    <div className="pt-2 border-t border-neutral-700">
+                                        <h3 className="text-sm font-medium text-yellow-400 mb-2">
+                                            Selected Datasets
+                                        </h3>
+                                        {selectedDatasets.length === 0 ? (
+                                            <div className="text-xs text-neutral-400">
+                                                No datasets selected on Analytics page.
                                             </div>
-                                        ))}
-                                        <div className="text-xs text-neutral-400 pt-1">
-                                            {logs.length} logs loaded from {selectedDatasets.length}{" "}
-                                            dataset{selectedDatasets.length > 1 ? "s" : ""}
-                                        </div>
+                                        ) : (
+                                            <div className="space-y-1">
+                                                {selectedDatasets.map((ds) => (
+                                                    <div
+                                                        key={ds.id}
+                                                        className="rounded bg-neutral-900 border border-neutral-700 px-3 py-1 text-sm text-neutral-200 flex items-center gap-2"
+                                                    >
+                                                        <ShapeMark
+                                                            shape={datasetShapes[String(ds.id)]}
+                                                        />
+                                                        <span>{ds.name}</span>
+                                                    </div>
+                                                ))}
+                                                <div className="text-xs text-neutral-400 pt-1">
+                                                    {logs.length} logs loaded from{" "}
+                                                    {selectedDatasets.length} dataset
+                                                    {selectedDatasets.length > 1 ? "s" : ""}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
-                                )}
-                            </div>
 
-                            <div className="pt-2 border-t border-neutral-700">
-                                <h3 className="text-sm font-medium text-yellow-400 mb-2">
-                                    Log Colors
-                                </h3>
-                                <div className="space-y-1">
-                                    <ColorPicker
-                                        colors={eventColors}
-                                        onColorChange={handleColorChange}
-                                        onRemoveColor={handleRemoveColor}
-                                        onAddColor={handleAddColor}
-                                        availableValues={availableValues}
-                                        selectedCriteria={colorCriteria}
-                                        onCriteriaChange={(c) => {
-                                            setColorCriteria(c);
-                                        }}
-                                    />
-                                </div>
-                            </div>
+                                    <div className="pt-2 border-t border-neutral-700">
+                                        <h3 className="text-sm font-medium text-yellow-400 mb-2">
+                                            Log Colors
+                                        </h3>
+                                        <div className="space-y-1">
+                                            <ColorPicker
+                                                colors={eventColors}
+                                                onColorChange={handleColorChange}
+                                                onRemoveColor={handleRemoveColor}
+                                                onAddColor={handleAddColor}
+                                                availableValues={availableValues}
+                                                selectedCriteria={colorCriteria}
+                                                onCriteriaChange={(c) => {
+                                                    setColorCriteria(c);
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
 
-                            <div className="pt-2 border-t border-neutral-700">
-                                <h3 className="text-sm font-medium text-yellow-400 mb-2">
-                                    Set Node Graph Relationship
-                                </h3>
-                                <div className="space-y-1">
-                                    <GraphControls
-                                        selectedRelationship={selectedRelationship}
-                                        onRelationshipChange={setSelectedRelationship}
-                                    />
-                                </div>
-                            </div>
+                                    <div className="pt-2 border-t border-neutral-700">
+                                        <h3 className="text-sm font-medium text-yellow-400 mb-2">
+                                            Set Node Graph Relationship
+                                        </h3>
+                                        <div className="space-y-1">
+                                            <GraphControls
+                                                selectedRelationship={selectedRelationship}
+                                                onRelationshipChange={setSelectedRelationship}
+                                            />
+                                        </div>
+                                    </div>
 
-                            <div className="pt-2 border-t border-neutral-700">
-                                <h3 className="text-sm font-medium text-yellow-400 mb-2">
-                                    Graph Physics
-                                </h3>
-                                <div className="space-y-3 text-xs">
-                                    <div>
-                                        <div className="flex items-center justify-between mb-1">
-                                            <span className="text-neutral-300">Center</span>
-                                            <span className="text-neutral-400">
-                                                {centerStrength.toFixed(2)}
-                                            </span>
+                                    <div className="pt-2 border-t border-neutral-700">
+                                        <h3 className="text-sm font-medium text-yellow-400 mb-2">
+                                            Graph Physics
+                                        </h3>
+                                        <div className="space-y-3 text-xs">
+                                            <div>
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <span className="text-neutral-300">Center</span>
+                                                    <span className="text-neutral-400">
+                                                        {centerStrength.toFixed(2)}
+                                                    </span>
+                                                </div>
+                                                <input
+                                                    type="range"
+                                                    min={0}
+                                                    max={0.5}
+                                                    step={0.01}
+                                                    value={centerStrength}
+                                                    onChange={(e) =>
+                                                        setCenterStrength(
+                                                            parseFloat(e.target.value)
+                                                        )
+                                                    }
+                                                    className="w-full"
+                                                />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <span className="text-neutral-300">Repel</span>
+                                                    <span className="text-neutral-400">
+                                                        {repelStrength}
+                                                    </span>
+                                                </div>
+                                                <input
+                                                    type="range"
+                                                    min={-500}
+                                                    max={-10}
+                                                    step={5}
+                                                    value={repelStrength}
+                                                    onChange={(e) =>
+                                                        setRepelStrength(
+                                                            parseInt(e.target.value, 10)
+                                                        )
+                                                    }
+                                                    className="w-full"
+                                                />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <span className="text-neutral-300">Link</span>
+                                                    <span className="text-neutral-400">
+                                                        {linkStrength.toFixed(2)}
+                                                    </span>
+                                                </div>
+                                                <input
+                                                    type="range"
+                                                    min={0}
+                                                    max={1}
+                                                    step={0.01}
+                                                    value={linkStrength}
+                                                    onChange={(e) =>
+                                                        setLinkStrength(parseFloat(e.target.value))
+                                                    }
+                                                    className="w-full"
+                                                />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <span className="text-neutral-300">
+                                                        Link distance
+                                                    </span>
+                                                    <span className="text-neutral-400">
+                                                        {linkDistance}px
+                                                    </span>
+                                                </div>
+                                                <input
+                                                    type="range"
+                                                    min={10}
+                                                    max={200}
+                                                    step={5}
+                                                    value={linkDistance}
+                                                    onChange={(e) =>
+                                                        setLinkDistance(
+                                                            parseInt(e.target.value, 10)
+                                                        )
+                                                    }
+                                                    className="w-full"
+                                                />
+                                            </div>
                                         </div>
-                                        <input
-                                            type="range"
-                                            min={0}
-                                            max={0.5}
-                                            step={0.01}
-                                            value={centerStrength}
-                                            onChange={(e) =>
-                                                setCenterStrength(parseFloat(e.target.value))
-                                            }
-                                            className="w-full"
-                                        />
                                     </div>
-                                    <div>
-                                        <div className="flex items-center justify-between mb-1">
-                                            <span className="text-neutral-300">Repel</span>
-                                            <span className="text-neutral-400">
-                                                {repelStrength}
-                                            </span>
-                                        </div>
-                                        <input
-                                            type="range"
-                                            min={-500}
-                                            max={-10}
-                                            step={5}
-                                            value={repelStrength}
-                                            onChange={(e) =>
-                                                setRepelStrength(parseInt(e.target.value, 10))
-                                            }
-                                            className="w-full"
-                                        />
-                                    </div>
-                                    <div>
-                                        <div className="flex items-center justify-between mb-1">
-                                            <span className="text-neutral-300">Link</span>
-                                            <span className="text-neutral-400">
-                                                {linkStrength.toFixed(2)}
-                                            </span>
-                                        </div>
-                                        <input
-                                            type="range"
-                                            min={0}
-                                            max={1}
-                                            step={0.01}
-                                            value={linkStrength}
-                                            onChange={(e) =>
-                                                setLinkStrength(parseFloat(e.target.value))
-                                            }
-                                            className="w-full"
-                                        />
-                                    </div>
-                                    <div>
-                                        <div className="flex items-center justify-between mb-1">
-                                            <span className="text-neutral-300">Link distance</span>
-                                            <span className="text-neutral-400">
-                                                {linkDistance}px
-                                            </span>
-                                        </div>
-                                        <input
-                                            type="range"
-                                            min={10}
-                                            max={200}
-                                            step={5}
-                                            value={linkDistance}
-                                            onChange={(e) =>
-                                                setLinkDistance(parseInt(e.target.value, 10))
-                                            }
-                                            className="w-full"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
+                                </>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -549,7 +570,9 @@ const Graphs = () => {
 
                     {/* Graphs Area */}
                     <div
-                        className={`flex-1 min-h-0 ${enabledCount > 1 ? "overflow-y-auto" : "overflow-hidden"}`}
+                        className={`flex-1 min-h-0 ${
+                            enabledCount > 1 ? "overflow-y-auto" : "overflow-hidden"
+                        }`}
                     >
                         <div className={`${enabledCount > 1 ? "pb-96" : ""} h-full space-y-1 p-1`}>
                             {graphOptions
@@ -567,7 +590,6 @@ const Graphs = () => {
                                             minHeight: enabledGraphs.length > 1 ? "200px" : "100%",
                                         }}
                                     >
-                                        {/* Placeholder content for each graph type */}
                                         {graph.id === "obsidian" && (
                                             <ObsidianGraph
                                                 logs={graphLogs}
@@ -597,7 +619,6 @@ const Graphs = () => {
                                             </div>
                                         )}
 
-                                        {/* Resize handle - show for all graphs when multiple are present */}
                                         {enabledGraphs.length > 1 && (
                                             <div
                                                 className="absolute bottom-0 left-0 right-0 h-1 bg-neutral-700 hover:bg-yellow-400 cursor-row-resize"
