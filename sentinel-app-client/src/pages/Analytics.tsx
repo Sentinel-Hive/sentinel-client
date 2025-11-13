@@ -47,7 +47,7 @@ const filterFields: FilterField[] = [
 const TITLE_H = 30;
 const DEFAULT_FILTERS_HEIGHT = 260;
 const TIMELINE_H = 200;
-const HEADER_BLOCK = 96; // sub-header (AnalyticsHeader) top offset
+const HEADER_BLOCK = 96;
 
 export default function Analytics() {
     const datasets = useDatasets();
@@ -403,12 +403,10 @@ export default function Analytics() {
 
     return (
         <>
-            {/* Sub-navigation header for Logs/Graphs */}
             <div className="fixed top-[61.5px] inset-x-0 bg-neutral-900 z-10">
                 <AnalyticsHeader />
             </div>
 
-            {/* Fixed timeline under sub-header, driven by filtered logs */}
             {hasTimeline && (
                 <div
                     className="fixed inset-x-0 z-10 border-b border-neutral-800 bg-black"
@@ -420,7 +418,6 @@ export default function Analytics() {
                 </div>
             )}
 
-            {/* Page body under header (+ timeline if present) */}
             <div
                 className="fixed inset-x-0 bottom-0 bg-black text-white flex overflow-hidden z-0"
                 style={{ top: `${mainTop}px` }}

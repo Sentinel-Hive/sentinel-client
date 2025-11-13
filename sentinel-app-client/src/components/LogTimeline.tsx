@@ -439,7 +439,6 @@ export default function LogTimeline({ logs, height = 168, className = "", onRefr
     return (
         <div ref={containerRef} className={`w-full ${className}`} style={{ height }}>
             <div className="w-full h-full flex">
-                {/* Controls column – buttons fill top-of-chart to bottom-of-scroll area */}
                 <div className="shrink-0 flex items-start justify-start h-full pr-1">
                     <div
                         className="grid grid-cols-2 grid-rows-3 gap-1 pb-5"
@@ -504,9 +503,7 @@ export default function LogTimeline({ logs, height = 168, className = "", onRefr
                     </div>
                 </div>
 
-                {/* Timeline + scrollbar */}
                 <div className="flex-1 min-w-0 flex flex-col">
-                    {/* Chart */}
                     <div ref={chartWrapRef} className="w-full" style={{ height: chartHeight }}>
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={rows} margin={MARGINS} barCategoryGap="0%" barGap={0}>
@@ -547,7 +544,6 @@ export default function LogTimeline({ logs, height = 168, className = "", onRefr
                         </ResponsiveContainer>
                     </div>
 
-                    {/* Scrollbar */}
                     <div className="w-full px-3 -mt-2 mb-2" style={{ height: SCROLL_H }}>
                         <div
                             ref={trackRef}

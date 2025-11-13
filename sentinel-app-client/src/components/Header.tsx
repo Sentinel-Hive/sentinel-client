@@ -156,7 +156,6 @@ export default function Header() {
                         <FolderSync />
                     </Button>
 
-                    {/* Notifications dropdown */}
                     <DropdownMenu.Root>
                         <DropdownMenu.Trigger asChild>
                             <button

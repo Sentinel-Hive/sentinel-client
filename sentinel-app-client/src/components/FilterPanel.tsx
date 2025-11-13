@@ -93,7 +93,6 @@ export default function FilterPanel({
                 </Button>
             </div>
 
-            {/* Date range */}
             <div className="bg-neutral-800 border border-neutral-700 rounded-lg">
                 <button
                     type="button"
@@ -125,7 +124,6 @@ export default function FilterPanel({
                 )}
             </div>
 
-            {/* Field filters */}
             {filterFields.map((f) => {
                 const selectedVals = fieldFilters[f.key] || [];
                 return (
@@ -183,7 +181,6 @@ export default function FilterPanel({
                 );
             })}
 
-            {/* Type filter removed per requirements (duplicate / deprecated) */}
         </div>
     );
 }

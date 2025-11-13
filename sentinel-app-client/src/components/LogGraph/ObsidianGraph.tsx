@@ -1030,7 +1030,6 @@ const ObsidianGraph = ({
             <div className="w-full h-full">
                 <svg ref={svgRef} className="w-full h-full bg-neutral-900" />
             </div>
-            {/* Overlay states */}
             {!isReady && nodes.length > 0 && (
                 <div className="absolute inset-0 flex items-center justify-center bg-neutral-900/70 backdrop-blur-sm">
                     <button

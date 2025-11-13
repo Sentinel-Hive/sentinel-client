@@ -353,14 +353,11 @@ const Graphs = () => {
 
     return (
         <div className="h-full flex flex-col">
-            {/* Sub-navigation header for Logs/Graphs */}
             <div className="fixed top-[61.5px] inset-x-0 bg-neutral-900 z-10">
                 <AnalyticsHeader />
             </div>
 
-            {/* Main content under the sub-header */}
             <div className="fixed inset-x-0 top-[96px] bottom-0 bg-black text-white flex z-0">
-                {/* Left Panel */}
                 <div
                     className="h-full bg-neutral-800 overflow-hidden"
                     style={{
@@ -574,7 +571,6 @@ const Graphs = () => {
                     </div>
                 </div>
 
-                {/* Resize Handle */}
                 {!sidebarCollapsed && (
                     <div
                         className="w-1 h-full bg-neutral-700 hover:bg-yellow-400 cursor-col-resize transition-colors"
@@ -582,12 +578,10 @@ const Graphs = () => {
                     />
                 )}
 
-                {/* Main Content Area */}
                 <div
                     className="flex-1 h-full flex flex-col min-h-0"
                     style={{ minWidth: MIN_GRAPH_WIDTH }}
                 >
-                    {/* Graph Header */}
                     <div className="px-4 py-2 border-b border-neutral-800">
                         <div className="flex items-center gap-x-4">
                             <button
@@ -613,7 +607,6 @@ const Graphs = () => {
                         </div>
                     </div>
 
-                    {/* Graphs Area */}
                     <div
                         className={`flex-1 min-h-0 ${
                             enabledCount > 1 ? "overflow-y-auto" : "overflow-hidden"

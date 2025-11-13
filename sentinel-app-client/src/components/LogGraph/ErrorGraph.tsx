@@ -454,9 +454,7 @@ const ErrorGraph = ({ logs }: ErrorGraphProps) => {
 
     return (
         <div className="w-full h-full flex flex-col min-h-0">
-            {/* Header: legend + zoom controls stay fixed */}
             <div className="flex items-center justify-between px-2 pb-1">
-                {/* Legend outside SVG so it doesn't scroll */}
                 <div className="flex flex-wrap gap-3 text-xs text-neutral-200">
                     {allCodes.map((code, idx) => {
                         const palette = d3.schemeTableau10 as string[];
@@ -475,7 +473,6 @@ const ErrorGraph = ({ logs }: ErrorGraphProps) => {
                                     style={{ backgroundColor: color }}
                                 />
                                 <span>{code}</span>
-                                {/* Hover tooltip (styled) */}
                                 <div className="pointer-events-none absolute top-5 left-0 z-50 hidden min-w-44 max-w-72 rounded border border-neutral-700 bg-neutral-900/95 p-2 text-[11px] text-neutral-200 shadow-lg group-hover:block">
                                     <div className="font-medium">
                                         {code} — {info.phrase}
@@ -490,7 +487,6 @@ const ErrorGraph = ({ logs }: ErrorGraphProps) => {
                     })}
                 </div>
 
-                {/* Zoom buttons */}
                 <div className="flex gap-1">
                     <button
                         className="px-2 py-1 text-xs rounded bg-neutral-800 text-neutral-200 hover:bg-neutral-700"
@@ -507,10 +503,8 @@ const ErrorGraph = ({ logs }: ErrorGraphProps) => {
                 </div>
             </div>
 
-            {/* Scrollable graph area */}
             <div ref={containerRef} className="relative flex-1 min-h-0 overflow-x-auto">
                 <svg ref={svgRef} className="h-full" />
-                {/* Spacer to ensure x-axis and labels are not covered by the bottom scrollbar */}
                 <div className="h-8" />
                 {noCodes && (
                     <div className="absolute inset-0 flex items-center justify-center text-neutral-400">

@@ -38,7 +38,6 @@ function App() {
                     <Route path="/alerts" element={<Alerts />} />
                     <Route path="/socket" element={<Socket />} />
 
-                    {/* 404 */}
                     <Route
                         path="*"
                         element={<div className="text-sm text-neutral-400">Page not found.</div>}

@@ -10,7 +10,6 @@ import { useUserStore } from "./store/userStore";
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
         <HashRouter>
-            {/* Restore persisted user into the zustand store so reloads keep you logged in */}
             {(() => {
                 try {
                     // Ensure the session module restores in-memory token/user before we

@@ -514,7 +514,6 @@ const LogGeoMap = ({ logs }: LogGeoMapProps) => {
                 </MarkerClusterGroup>
             </AnyMapContainer>
 
-            {/* Debug overlay */}
             <div className="absolute top-2 left-2 px-2 py-1 text-[10px] rounded bg-neutral-900/80 text-neutral-200 space-y-0.5">
                 <div>logs: {logs.length}</div>
                 <div>unique IPs: {uniqueIps.length}</div>

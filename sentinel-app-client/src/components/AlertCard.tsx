@@ -43,7 +43,6 @@ export default function AlertCard({
             role="region"
             aria-label={`Alert ${title}`}
         >
-            {/* accent stripe */}
             <div className="pointer-events-none absolute left-0 top-0 h-full w-1.5 bg-[hsl(var(--primary))]" />
 
             <header className="flex items-start justify-between gap-3">
@@ -92,7 +91,6 @@ export default function AlertCard({
                 </ul>
             )}
 
-            {/* hover glow */}
             <div
                 className="pointer-events-none absolute inset-0 opacity-0 transition group-hover:opacity-100"
                 style={{

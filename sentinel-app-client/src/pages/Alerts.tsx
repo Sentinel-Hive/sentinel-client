@@ -42,7 +42,6 @@ export default function Alerts() {
             <header className="flex items-end justify-between">
                 <h2 className="text-2xl font-semibold tracking-tight">Alerts</h2>
 
-                {/* Controls */}
                 <div className="flex items-center gap-3 text-sm">
                     <label className="flex items-center gap-2 text-white/80">
                         <input

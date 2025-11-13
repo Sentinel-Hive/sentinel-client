@@ -184,9 +184,7 @@ const ColorPicker = ({
 
     return (
         <div className="space-y-4">
-            {/* Criteria selector */}
             <div className="space-y-4">
-                {/* Select Criteria label and dropdown */}
                 <div className="flex flex-col gap-1">
                     <label className="text-sm font-medium text-white mb-1">Select Criteria</label>
                     <Select value={selectedCriteria} onValueChange={handleCriteriaChange}>
@@ -202,7 +200,6 @@ const ColorPicker = ({
                     </Select>
                 </div>
 
-                {/* Generate Colors button */}
                 <div className="flex flex-col gap-1">
                     <Button
                         variant="outline"
@@ -225,7 +222,6 @@ const ColorPicker = ({
                 </div>
             </div>
 
-            {/* Header + collapse toggle for value colors */}
             <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-white">
                     Value Colors ({valuesForCriteria.length})
@@ -239,7 +235,6 @@ const ColorPicker = ({
                 </button>
             </div>
 
-            {/* Color tags - all values are shown when expanded */}
             {showValues && (
                 <div className="flex flex-wrap gap-2">
                     {valuesForCriteria.map((value) => {
