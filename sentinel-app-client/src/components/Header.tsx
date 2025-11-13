@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, NavLink } from "react-router-dom";
-import { RotateCw, Bell, Settings } from "lucide-react";
+import { FolderSync, Bell, Settings } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { toast } from "sonner";
 import AlertNotification, { Severity } from "./AlertNotification";
@@ -39,6 +39,19 @@ export default function Header() {
         return () => {
             off();
         };
+    }, []);
+
+    useEffect(() => {
+        const intervalId = setInterval(async () => {
+            try {
+                await loadAllDatasets();
+            } catch {
+                const time = Date.now();
+                toast.error(`Unable to Sync with database: ${time}`);
+            }
+        }, 10_000);
+
+        return () => clearInterval(intervalId);
     }, []);
 
     const notifications = useMemo(() => {
@@ -136,20 +149,11 @@ export default function Header() {
                 <span></span>
                 <div className="flex items-center gap-2">
                     <Button
-                        variant="ghost"
-                        className="hover:text-yellow-500 inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800/60 focus:outline-none focus:ring-2 focus:ring-neutral-700"
-                        onClick={() => handleAdminSettingsClick()}
-                    >
-                        <Settings />
-                    </Button>
-
-                    <Button
-                        type="button"
                         onClick={() => handleSyncClick()}
                         aria-label="Refresh"
-                        className="hover:text-yellow-500 inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800/60 focus:outline-none focus:ring-2 focus:ring-neutral-700"
+                        className="hover:text-yellow-500 inline-flex items-center gap-2 rounded-xl px-3 py-2 hover:bg-neutral-800/60 focus:outline-none focus:ring-2 focus:ring-neutral-700 [&_svg]:h-5 [&_svg]:w-5 text-gray-300"
                     >
-                        <RotateCw className="h-4 w-4" />
+                        <FolderSync />
                     </Button>
 
                     {/* Notifications dropdown */}
@@ -158,7 +162,7 @@ export default function Header() {
                             <button
                                 type="button"
                                 aria-label="Notifications"
-                                className="hover:text-yellow-500 inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800/60 focus:outline-none focus:ring-2 focus:ring-neutral-700"
+                                className="hover:text-yellow-500 inline-flex items-center gap-2 rounded-xl px-3 py-2 hover:bg-neutral-800/60 focus:outline-none focus:ring-2 focus:ring-neutral-700 [&_svg]:h-5 [&_svg]:w-5 text-gray-300"
                             >
                                 <Bell className="h-4 w-4" />
                                 <span className="hidden sm:inline">{notifications.length}</span>
@@ -225,6 +229,16 @@ export default function Header() {
                             </DropdownMenu.Content>
                         </DropdownMenu.Portal>
                     </DropdownMenu.Root>
+
+                    {user?.is_admin && (
+                        <Button
+                            variant="ghost"
+                            className="hover:text-yellow-500 inline-flex items-center gap-2 rounded-xl px-3 py-2 hover:bg-neutral-800/60 focus:outline-none focus:ring-2 focus:ring-neutral-700 [&_svg]:h-5 [&_svg]:w-5 text-gray-300"
+                            onClick={() => handleAdminSettingsClick()}
+                        >
+                            <Settings />
+                        </Button>
+                    )}
 
                     <Button
                         className="bg-red-700 hover:bg-red-600"
