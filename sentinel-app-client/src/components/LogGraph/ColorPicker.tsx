@@ -190,9 +190,6 @@ const ColorPicker = ({
                 <div className="flex flex-col gap-1">
                     <label className="text-sm font-medium text-white mb-1">Select Criteria</label>
                     <Select value={selectedCriteria} onValueChange={handleCriteriaChange}>
-                        <SelectTrigger className="w-[250px] bg-neutral-800 border-neutral-700 [&>span]:text-white">
-                            <SelectValue placeholder="Select criteria" />
-                        </SelectTrigger>
                         <SelectContent>
                             {Object.entries(criteriaTitles)
                                 .filter(([key]) => key !== "select")
