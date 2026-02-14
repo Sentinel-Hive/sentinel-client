@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+:root {
+    --background: #ffffff;
+    --foreground: #171717;
+    --font-geist-sans: system-ui, -apple-system, sans-serif;
+    --font-geist-mono: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --background: #0a0a0a;
+        --foreground: #ededed;
+    }
+}
+
+@layer base {
+    body {
+        @apply antialiased;
+        background-color: var(--background);
+        color: var(--foreground);
+    }
+
+    html {
+        font-family: var(--font-geist-sans);
+    }
+}
