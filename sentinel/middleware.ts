@@ -1,0 +1,1 @@
+// We will need the middleware to check for an auth token in the request headers and validate it before allowing access to certain routes.

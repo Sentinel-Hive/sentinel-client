@@ -9,7 +9,7 @@ import { useUser, useUserStore } from "../store/userStore";
 import { logout } from "../lib/session";
 import { loadAllDatasets } from "@/lib/dataHandler";
 import { onPopupAdded } from "../lib/popupsStore";
-import { Button } from "./ui/button";
+import { Button } from "@/components/ui/button";
 
 const navLinkClass = "px-3 py-2 rounded-xl text-sm font-medium transition hover:bg-neutral-800/60";
 const activeClass = "bg-neutral-800";
